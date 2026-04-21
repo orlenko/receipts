@@ -162,11 +162,17 @@ function renderKeyStatus() {
     if (orMode && state.mode === 'batch') setMode('live');
   }
 }
-saveKeyBtn.addEventListener('click', () => {
+function saveOpenAiKeyFromInput() {
   const v = keyInput.value.trim();
   if (!v) return;
   persistAuth('openai', v);
   renderKeyStatus();
+}
+saveKeyBtn.addEventListener('click', saveOpenAiKeyFromInput);
+// Auto-save on blur after a paste/edit (no need to hunt for the green button).
+keyInput.addEventListener('change', saveOpenAiKeyFromInput);
+keyInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); saveOpenAiKeyFromInput(); }
 });
 clearKeyBtn.addEventListener('click', () => {
   clearAuth();
