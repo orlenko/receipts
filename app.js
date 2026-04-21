@@ -173,20 +173,11 @@ clearKeyBtn.addEventListener('click', () => {
   renderKeyStatus();
 });
 
-// OpenRouter PKCE — both the "sign up" button and the "log in" button kick off
-// the same redirect flow. OpenRouter handles new-user registration inline.
+// OpenRouter PKCE: redirect to /auth, user signs in (or creates an account on
+// OpenRouter's side), they're redirected back here with ?code=... which the
+// init block picks up and exchanges for a long-lived API key.
 const orLoginBtn = $('or-login');
-const orSignupBtn = $('or-signup');
 orLoginBtn?.addEventListener('click', async () => {
-  try { await beginOpenRouterAuth(); }
-  catch (e) { alert(`Could not start OpenRouter sign-in: ${e.message}`); }
-});
-orSignupBtn?.addEventListener('click', async () => {
-  // The OpenRouter authorize page already shows a sign-up option, so the only
-  // difference for "sign up" is that we hint to a brand-new user where they
-  // are headed. Open the marketing site in a new tab and start the PKCE flow
-  // in this one — when they finish onboarding they come back already signed in.
-  window.open('https://openrouter.ai/sign-up', '_blank', 'noopener');
   try { await beginOpenRouterAuth(); }
   catch (e) { alert(`Could not start OpenRouter sign-in: ${e.message}`); }
 });

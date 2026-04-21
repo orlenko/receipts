@@ -179,18 +179,18 @@
       </div>
       <div class="step-body">
         <header class="step-head">
-          <h2 id="step-key-title">Choose how you'll talk to the model</h2>
+          <h2 id="step-key-title">Pick how you'll connect</h2>
           <p class="step-sub">
-            Three paths, you only need one. Whichever you pick, the resulting
-            credential is stored only in this browser (<code>localStorage</code>) and
-            sent only to the API host below.
+            Two paths, you only need one. The resulting credential is stored only
+            in this browser (<code>localStorage</code>) and sent only to the API host
+            below.
           </p>
         </header>
 
         <div class="card auth-card">
           <!-- Option A: paste your own OpenAI key -->
           <div class="auth-opt">
-            <h3 class="auth-opt-title">A. I have an OpenAI API key</h3>
+            <h3 class="auth-opt-title">A. Paste your OpenAI API key</h3>
             <p class="auth-opt-sub">
               Cheapest path. Goes straight to <code>api.openai.com</code> — no third party in the loop. Unlocks batch mode (~50% off).
               <a href="#how-to-get-a-key">How do I get a key?</a>
@@ -205,24 +205,16 @@
 
           <div class="auth-divider"><span>or</span></div>
 
-          <!-- Option B: sign up for OpenRouter -->
+          <!-- Option B: log in with OpenRouter (PKCE — works whether or not you already have an account) -->
           <div class="auth-opt">
-            <h3 class="auth-opt-title">B. I'd like easy setup &mdash; sign me up</h3>
+            <h3 class="auth-opt-title">B. Log in to OpenRouter</h3>
             <p class="auth-opt-sub">
-              Creates an OpenRouter account, brings you back here signed in. ~5% more per receipt; in this mode your image passes through OpenRouter on its way to OpenAI. Batch mode unavailable.
+              One click. If you don't have an OpenRouter account yet, you can create
+              one on their sign-in page and come right back. In this mode your image
+              passes through OpenRouter on its way to OpenAI; ~5% more per receipt;
+              batch mode unavailable.
             </p>
-            <button id="or-signup" class="btn btn-primary" type="button">Sign up with OpenRouter</button>
-          </div>
-
-          <div class="auth-divider"><span>or</span></div>
-
-          <!-- Option C: log in with existing OpenRouter account -->
-          <div class="auth-opt">
-            <h3 class="auth-opt-title">C. I already have an OpenRouter account</h3>
-            <p class="auth-opt-sub">
-              One click. Same trade-off as B (one extra hop, no batch mode).
-            </p>
-            <button id="or-login" class="btn btn-ghost" type="button">Sign in with OpenRouter</button>
+            <button id="or-login" class="btn btn-primary" type="button">Sign in with OpenRouter</button>
           </div>
 
           <div id="key-status" class="key-status" role="status" aria-live="polite"></div>
