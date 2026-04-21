@@ -1272,6 +1272,48 @@ main {
 }
 
 /* ════════════════════════════════════════════════════════════════════
+   AUTH PANEL  (paste OpenAI key | sign up with OpenRouter | log in)
+   ════════════════════════════════════════════════════════════════════ */
+.auth-card { display: flex; flex-direction: column; gap: 0; }
+.auth-opt { padding: 18px 0; }
+.auth-opt:first-child { padding-top: 0; }
+.auth-opt:last-of-type { padding-bottom: 8px; }
+.auth-opt-title {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+  letter-spacing: -0.005em;
+}
+.auth-opt-sub {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--ink-3);
+  line-height: 1.5;
+  max-width: 60ch;
+}
+.auth-divider {
+  position: relative;
+  text-align: center;
+  margin: 4px 0;
+  color: var(--ink-4);
+  font: 11px/1 var(--mono);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.auth-divider::before,
+.auth-divider::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  width: calc(50% - 24px);
+  border-top: 1px solid var(--rule);
+}
+.auth-divider::before { left: 0; }
+.auth-divider::after  { right: 0; }
+.auth-divider span { background: var(--card); padding: 0 4px; position: relative; }
+
+/* ════════════════════════════════════════════════════════════════════
    MODE SWITCH  (Live vs Batch)
    ════════════════════════════════════════════════════════════════════ */
 .mode-switch {

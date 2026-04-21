@@ -6,6 +6,9 @@ import { listBatches, getBatchRecord, deleteBatchAndFiles } from './db.js';
 import {
   submitBatch, refreshStatus, fetchAndProcess, hydrateResults, TERMINAL_STATES,
 } from './batch.js';
+import {
+  beginOpenRouterAuth, completeOpenRouterAuth, isReturningFromOpenRouter,
+} from './auth.js';
 
 const EXTRACTION_PROMPT = `You are extracting structured data from a photo of a receipt.
 
@@ -52,18 +55,62 @@ For text fields you cannot read confidently, use null. For optional strings
 (address/city/region/country/phone), use "" if absent.
 Output JSON only, no prose, no markdown fences.`;
 
-const MODEL = 'gpt-5.4';
+// Two providers supported:
+//   - 'openai':     direct to api.openai.com with the user's own key. Cheapest,
+//                   supports batch mode (~50% off via the Batch API).
+//   - 'openrouter': via openrouter.ai using a PKCE-OAuth-issued key. One extra
+//                   hop in the trust chain, ~5% markup, batch API not exposed.
+const MODEL_OPENAI = 'gpt-5.4';
+const MODEL_OPENROUTER = 'openai/gpt-5.4';
+const API_BASE = {
+  openai: 'https://api.openai.com/v1',
+  openrouter: 'https://openrouter.ai/api/v1',
+};
+
 const API_MAX_EDGE = 1568;
-const KEY_STORAGE = 'receipts.openai_key';
+const KEY_STORAGE = 'receipts.openai_key';        // legacy; still read on first load
+const PROVIDER_STORAGE = 'receipts.provider';     // 'openai' | 'openrouter'
+const PROVIDER_KEY_STORAGE = 'receipts.provider_key';
 const MODE_STORAGE = 'receipts.mode';
 
 // ---------- state ----------
+function loadInitialAuth() {
+  // Migrate the v1 single-key storage into the new (provider, key) shape.
+  const provider = localStorage.getItem(PROVIDER_STORAGE);
+  const providerKey = localStorage.getItem(PROVIDER_KEY_STORAGE);
+  if (provider && providerKey) return { provider, apiKey: providerKey };
+  const legacy = localStorage.getItem(KEY_STORAGE);
+  if (legacy) {
+    localStorage.setItem(PROVIDER_STORAGE, 'openai');
+    localStorage.setItem(PROVIDER_KEY_STORAGE, legacy);
+    return { provider: 'openai', apiKey: legacy };
+  }
+  return { provider: 'openai', apiKey: '' };
+}
+
+const initialAuth = loadInitialAuth();
 const state = {
-  apiKey: localStorage.getItem(KEY_STORAGE) || '',
+  provider: initialAuth.provider,        // 'openai' | 'openrouter'
+  apiKey: initialAuth.apiKey,
   mode: localStorage.getItem(MODE_STORAGE) === 'batch' ? 'batch' : 'live',
   queue: [], // [{id, file, thumbUrl}]
   results: [], // [{id, file, fields, status, reasons, processedBlob, processedUrl}]
 };
+
+function persistAuth(provider, key) {
+  state.provider = provider;
+  state.apiKey = key;
+  if (provider && key) {
+    localStorage.setItem(PROVIDER_STORAGE, provider);
+    localStorage.setItem(PROVIDER_KEY_STORAGE, key);
+  }
+}
+function clearAuth() {
+  state.apiKey = '';
+  localStorage.removeItem(KEY_STORAGE);
+  localStorage.removeItem(PROVIDER_KEY_STORAGE);
+  // keep the provider preference so the right tab is selected next time
+}
 
 // ---------- DOM refs ----------
 const $ = (id) => document.getElementById(id);
@@ -94,30 +141,55 @@ const downloadCsvBtn = $('download-csv-btn');
 
 const PLATFORM_BATCH_URL = (id) => `https://platform.openai.com/batches/${id}`;
 
-// ---------- API key ----------
+// ---------- API key / provider auth ----------
 function renderKeyStatus() {
   if (state.apiKey) {
-    keyStatus.textContent = `Key saved locally (ends in …${state.apiKey.slice(-4)}). Ready to process.`;
+    const provider = state.provider === 'openrouter' ? 'OpenRouter' : 'OpenAI';
+    keyStatus.textContent = `${provider} key saved locally (ends in …${state.apiKey.slice(-4)}). Ready to process.`;
     keyStatus.classList.add('is-set');
     keyInput.value = '';
   } else {
-    keyStatus.textContent = 'No key saved yet — paste one above to begin.';
+    keyStatus.textContent = 'No key saved yet — pick an option above to begin.';
     keyStatus.classList.remove('is-set');
+  }
+  // Batch mode is OpenAI-only (OpenRouter doesn't expose the Batch API).
+  if (modeBatchBtn) {
+    const orMode = state.provider === 'openrouter';
+    modeBatchBtn.disabled = orMode;
+    modeBatchBtn.title = orMode
+      ? 'Batch mode is only available with a direct OpenAI key (OpenRouter doesn\u2019t expose the Batch API)'
+      : '';
+    if (orMode && state.mode === 'batch') setMode('live');
   }
 }
 saveKeyBtn.addEventListener('click', () => {
   const v = keyInput.value.trim();
   if (!v) return;
-  state.apiKey = v;
-  localStorage.setItem(KEY_STORAGE, v);
+  persistAuth('openai', v);
   renderKeyStatus();
 });
 clearKeyBtn.addEventListener('click', () => {
-  state.apiKey = '';
-  localStorage.removeItem(KEY_STORAGE);
+  clearAuth();
   renderKeyStatus();
 });
-renderKeyStatus();
+
+// OpenRouter PKCE — both the "sign up" button and the "log in" button kick off
+// the same redirect flow. OpenRouter handles new-user registration inline.
+const orLoginBtn = $('or-login');
+const orSignupBtn = $('or-signup');
+orLoginBtn?.addEventListener('click', async () => {
+  try { await beginOpenRouterAuth(); }
+  catch (e) { alert(`Could not start OpenRouter sign-in: ${e.message}`); }
+});
+orSignupBtn?.addEventListener('click', async () => {
+  // The OpenRouter authorize page already shows a sign-up option, so the only
+  // difference for "sign up" is that we hint to a brand-new user where they
+  // are headed. Open the marketing site in a new tab and start the PKCE flow
+  // in this one — when they finish onboarding they come back already signed in.
+  window.open('https://openrouter.ai/sign-up', '_blank', 'noopener');
+  try { await beginOpenRouterAuth(); }
+  catch (e) { alert(`Could not start OpenRouter sign-in: ${e.message}`); }
+});
 
 // ---------- drop zone ----------
 ['dragenter', 'dragover'].forEach(evt => {
@@ -203,14 +275,22 @@ async function blobToDataUrl(blob) {
 
 // ---------- OpenAI call ----------
 async function extractFields(apiJpegDataUrl) {
-  const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+  const base = API_BASE[state.provider] || API_BASE.openai;
+  const model = state.provider === 'openrouter' ? MODEL_OPENROUTER : MODEL_OPENAI;
+  const headers = {
+    'Authorization': `Bearer ${state.apiKey}`,
+    'Content-Type': 'application/json',
+  };
+  // OpenRouter recommends these for proper attribution / app analytics.
+  if (state.provider === 'openrouter') {
+    headers['HTTP-Referer'] = window.location.origin;
+    headers['X-Title'] = 'receipts';
+  }
+  const resp = await fetch(`${base}/chat/completions`, {
     method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${state.apiKey}`,
-      'Content-Type': 'application/json',
-    },
+    headers,
     body: JSON.stringify({
-      model: MODEL,
+      model,
       temperature: 0,
       response_format: { type: 'json_object' },
       messages: [
@@ -725,9 +805,24 @@ function fmtNum(v) {
 
 // ---------- init ----------
 (async () => {
+  // 1. If we just landed back from the OpenRouter authorize page, finish the
+  //    PKCE handshake before anything else looks at state.apiKey.
+  if (isReturningFromOpenRouter()) {
+    try {
+      const { key } = await completeOpenRouterAuth();
+      persistAuth('openrouter', key);
+      renderKeyStatus();
+    } catch (e) {
+      console.warn('OpenRouter callback failed:', e);
+      alert(`Sign-in failed: ${e.message}`);
+    }
+  } else {
+    renderKeyStatus();
+  }
+  // 2. Resume any persisted batches from a previous session.
   try {
-    await refreshAndRenderBatches({ poll: !!state.apiKey });
-    if (state.apiKey) startPolling();
+    await refreshAndRenderBatches({ poll: !!state.apiKey && state.provider === 'openai' });
+    if (state.apiKey && state.provider === 'openai') startPolling();
   } catch (e) {
     console.warn('init batches failed:', e);
   }
