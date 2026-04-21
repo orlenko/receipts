@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>receipts — private, BYO-key receipt OCR</title>
+  <meta name="description" content="Upload photos of paper receipts and get upright, cropped scans with extracted vendor, amount, tax, and date. Your OpenAI API key and images stay in your browser." />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main>
+    <header>
+      <h1>receipts</h1>
+      <p class="tagline">
+        Upright, cropped scans + structured fields from photos of paper receipts.
+        Your OpenAI API key and images never leave your browser.
+      </p>
+    </header>
+
+    <section id="key-section" class="panel">
+      <h2>1. OpenAI API key</h2>
+      <p>Paste your key. Stored locally in your browser (<code>localStorage</code>); never sent anywhere except OpenAI.
+        <a href="#how-to-get-a-key">How do I get one?</a>
+      </p>
+      <div class="key-row">
+        <input type="password" id="api-key" placeholder="sk-..." autocomplete="off" spellcheck="false" />
+        <button id="save-key">Save</button>
+        <button id="clear-key" class="secondary">Clear</button>
+      </div>
+      <div id="key-status" class="muted"></div>
+    </section>
+
+    <section id="drop-section" class="panel">
+      <h2>2. Drop in your receipt photos</h2>
+      <div id="drop-zone">
+        <p>Drag JPG or PNG files here, or</p>
+        <label class="button-like">
+          Choose files
+          <input type="file" id="file-input" multiple accept="image/jpeg,image/png" hidden />
+        </label>
+        <p class="muted small">HEIC not yet supported — convert to JPG first.</p>
+      </div>
+    </section>
+
+    <section id="queue-section" class="panel" hidden>
+      <h2>3. Process</h2>
+      <div id="queue-summary" class="muted"></div>
+      <div class="controls">
+        <button id="process-btn">Process all</button>
+        <button id="clear-queue-btn" class="secondary">Clear queue</button>
+      </div>
+      <ol id="queue-list"></ol>
+    </section>
+
+    <section id="results-section" class="panel" hidden>
+      <h2>Results</h2>
+      <div class="controls">
+        <button id="download-all-btn">Download all as ZIP</button>
+      </div>
+      <div id="results-list"></div>
+    </section>
+
+    <footer>
+      <details id="how-to-get-a-key">
+        <summary>How do I get an OpenAI API key?</summary>
+        <ol>
+          <li>Go to <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">platform.openai.com/api-keys</a> and sign in or sign up.</li>
+          <li>Click <em>Create new secret key</em>. Give it any name.</li>
+          <li>Copy the <code>sk-...</code> string and paste it above.</li>
+          <li>Add a small amount of credit at <a href="https://platform.openai.com/settings/organization/billing" target="_blank" rel="noopener">Billing</a> ($5 is enough for ~1000 receipts).</li>
+        </ol>
+      </details>
+
+      <details>
+        <summary>How much does this cost?</summary>
+        <table>
+          <thead>
+            <tr><th>Service</th><th>Per receipt</th><th>Notes</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>This tool (live)</td><td>~$0.01</td><td>OpenAI gpt-5.4 vision, direct</td></tr>
+            <tr><td>Typical SaaS OCR</td><td>$0.05 – $0.30</td><td>Dashboard, SOC2, support — you pay for all of it</td></tr>
+          </tbody>
+        </table>
+      </details>
+
+      <details>
+        <summary>What leaves my browser?</summary>
+        <p>Your API key is read from the input and sent as an <code>Authorization</code> header on requests to OpenAI. Receipt images are downscaled to 1568px on the long edge, then sent (base64-encoded) to OpenAI for OCR. The model's structured response is parsed locally. Nothing is sent to any other server.</p>
+      </details>
+
+      <p class="muted small">
+        Source: <a href="https://github.com/" target="_blank" rel="noopener">github.com/…/receipts</a>.
+        Privacy: no cookies, no tracking beyond privacy-first page analytics.
+      </p>
+    </footer>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

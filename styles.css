@@ -1,0 +1,186 @@
+:root {
+  --bg: #fafaf7;
+  --fg: #1a1a1a;
+  --muted: #666;
+  --panel: #fff;
+  --border: #e3e3e0;
+  --accent: #0a6;
+  --accent-fg: #fff;
+  --danger: #b33;
+  --warn: #b87;
+  --code-bg: #f0efec;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 15px/1.5 system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif;
+}
+
+main {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 24px 18px 64px;
+}
+
+h1 {
+  margin: 0 0 4px;
+  font-size: 28px;
+  letter-spacing: -0.01em;
+}
+
+.tagline {
+  color: var(--muted);
+  margin: 0 0 24px;
+}
+
+h2 {
+  font-size: 16px;
+  margin: 0 0 8px;
+  letter-spacing: 0.01em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+
+code {
+  background: var(--code-bg);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 0.92em;
+}
+
+button, .button-like {
+  display: inline-block;
+  padding: 8px 14px;
+  border: none;
+  border-radius: 5px;
+  background: var(--accent);
+  color: var(--accent-fg);
+  font: inherit;
+  cursor: pointer;
+}
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+button.secondary, .button-like.secondary {
+  background: transparent;
+  color: var(--fg);
+  border: 1px solid var(--border);
+}
+
+input[type=password], input[type=text] {
+  flex: 1;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font: inherit;
+  background: #fff;
+}
+
+.key-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.controls {
+  display: flex;
+  gap: 8px;
+  margin: 8px 0;
+  flex-wrap: wrap;
+}
+
+#drop-zone {
+  border: 2px dashed var(--border);
+  border-radius: 8px;
+  padding: 32px 16px;
+  text-align: center;
+  transition: border-color 0.15s, background 0.15s;
+}
+#drop-zone.dragover {
+  border-color: var(--accent);
+  background: #f0faf5;
+}
+
+#queue-list {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 0;
+}
+#queue-list li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+#queue-list li:last-child { border-bottom: none; }
+#queue-list .thumb {
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 4px;
+  background: var(--code-bg);
+}
+#queue-list .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#queue-list .status { font-size: 13px; color: var(--muted); min-width: 80px; text-align: right; }
+#queue-list .status.ok { color: var(--accent); }
+#queue-list .status.review { color: var(--warn); }
+#queue-list .status.error { color: var(--danger); }
+
+.result-card {
+  display: grid;
+  grid-template-columns: 180px 1fr;
+  gap: 14px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border);
+}
+.result-card:last-child { border-bottom: none; }
+.result-card img.processed {
+  width: 180px;
+  max-height: 300px;
+  object-fit: contain;
+  background: var(--code-bg);
+  border-radius: 4px;
+}
+.result-card .fields { font-size: 13px; }
+.result-card .fields dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; }
+.result-card .fields dt { color: var(--muted); }
+.result-card .actions { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; }
+.result-card .actions button { padding: 4px 10px; font-size: 13px; }
+.result-card .badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 12px;
+  background: #eee;
+  color: var(--muted);
+  margin-left: 6px;
+}
+.result-card .badge.ok { background: #d6f1e3; color: #06592f; }
+.result-card .badge.review { background: #fff0d8; color: #935000; }
+.result-card .badge.error { background: #fbdcdc; color: #852222; }
+
+footer {
+  margin-top: 32px;
+  color: var(--muted);
+  font-size: 14px;
+}
+footer details { margin-bottom: 12px; }
+footer summary { cursor: pointer; padding: 4px 0; }
+footer table { border-collapse: collapse; margin: 8px 0; }
+footer th, footer td { text-align: left; padding: 4px 12px 4px 0; }
+footer th { font-weight: 600; color: var(--fg); }
