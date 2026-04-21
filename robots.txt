@@ -1,0 +1,3 @@
+# receipts.clickable.one — single-page tool, fully crawlable.
+User-agent: *
+Allow: /
