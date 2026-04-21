@@ -113,9 +113,47 @@ Per request, one row:
 | `blob2` | country code, derived at the CF edge from the request (no raw IP stored) |
 | `blob3` | referer hostname only (full URL and query string are dropped) |
 | `blob4` | coarse UA family: `mac` / `ios` / `android` / `windows` / `linux` / `bot` / `other` |
+| `blob5` | city (CF edge inference; non-identifying on its own) |
+| `blob6` | region / state / province |
+| `blob7` | CF colo — datacenter that served the request (e.g. `YYZ`, `LHR`) |
 | `double1` | HTTP status code |
+| `double2` | ASN — network number, useful to distinguish residential vs cloud/datacenter |
 
-No cookies, no client-side JS tracker, no raw IP, no personally-identifying headers retained.
+No cookies, no client-side JS tracker, **no raw IP**, no personally-identifying headers retained. Country / city / region / ASN are all derived at the CF edge from the inbound request without storing the address itself.
+
+A few more sample queries with the new fields:
+
+```sql
+-- top cities in the last month
+SELECT blob5 AS city, blob6 AS region, blob2 AS country, count() AS hits
+FROM receipts_hits
+WHERE index1 = 'receipts.example.com'
+  AND blob5 != ''
+  AND timestamp > NOW() - INTERVAL '30' DAY
+GROUP BY city, region, country
+ORDER BY hits DESC
+LIMIT 20;
+
+-- bot vs datacenter vs human (ASN buckets)
+SELECT
+  multiIf(blob4 = 'bot', 'self-declared-bot',
+          double2 > 0 AND blob4 IN ('mac','ios','android','windows','linux'), 'human',
+          'datacenter-or-unknown') AS audience,
+  count() AS hits
+FROM receipts_hits
+WHERE index1 = 'receipts.example.com'
+  AND timestamp > NOW() - INTERVAL '7' DAY
+GROUP BY audience
+ORDER BY hits DESC;
+
+-- which CF datacenters are serving the most hits (fun one)
+SELECT blob7 AS colo, count() AS hits
+FROM receipts_hits
+WHERE index1 = 'receipts.example.com'
+  AND blob7 != ''
+  AND timestamp > NOW() - INTERVAL '7' DAY
+GROUP BY colo ORDER BY hits DESC;
+```
 
 ---
 

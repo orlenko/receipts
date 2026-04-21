@@ -11,11 +11,17 @@
 //   indexes[0] -> hostname (useful if you add more subdomains to one dataset)
 //   blobs[0]   -> URL path
 //   blobs[1]   -> country (derived at CF edge; no raw IP stored)
-//   blobs[2]   -> referer (truncated)
-//   blobs[3]   -> user-agent family, truncated (coarse)
+//   blobs[2]   -> referer hostname (query string dropped)
+//   blobs[3]   -> user-agent family, coarse (ios / android / mac / bot / …)
+//   blobs[4]   -> city (CF edge inference; non-identifying)
+//   blobs[5]   -> region / state / province
+//   blobs[6]   -> CF colo (datacenter that served the request, e.g. YYZ)
 //   doubles[0] -> HTTP status code
+//   doubles[1] -> ASN (network number — useful to distinguish residential vs
+//                 cloud/datacenter traffic; never logged with the IP itself)
 //
-// Query examples in HOW_TO_DEPLOY.md.
+// Raw IP address is explicitly NOT logged; country/city/region/asn are derived
+// at the CF edge without retaining the address. Query examples in HOW_TO_DEPLOY.md.
 
 interface Env {
   HITS?: AnalyticsEngineDataset;
@@ -46,15 +52,20 @@ export const onRequest: PagesFunction<Env> = async (ctx) => {
       const url = new URL(ctx.request.url);
       // Skip writes for common noise paths so the dataset stays signal-heavy.
       if (url.pathname !== '/favicon.ico' && !url.pathname.startsWith('/.well-known/')) {
+        const cf = ctx.request.cf as Record<string, unknown> | undefined;
+        const asn = typeof cf?.asn === 'number' ? cf.asn : 0;
         ctx.env.HITS.writeDataPoint({
           indexes: [url.hostname],
           blobs: [
             url.pathname,
-            (ctx.request.cf?.country as string | undefined) ?? '',
+            (cf?.country as string | undefined) ?? '',
             shortReferer(ctx.request.headers.get('referer') ?? ''),
             uaFamily(ctx.request.headers.get('user-agent') ?? ''),
+            (cf?.city as string | undefined) ?? '',
+            (cf?.region as string | undefined) ?? '',
+            (cf?.colo as string | undefined) ?? '',
           ],
-          doubles: [response.status],
+          doubles: [response.status, asn],
         });
       }
     }
