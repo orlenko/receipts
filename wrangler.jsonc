@@ -1,0 +1,12 @@
+// Cloudflare Pages configuration.
+// Declares the Analytics Engine binding used by functions/_middleware.ts.
+// This is the authoritative source for bindings — any binding added via the
+// Pages dashboard is ignored when this file is present. See HOW_TO_DEPLOY.md.
+{
+  "name": "receipts",
+  "compatibility_date": "2026-01-01",
+  "pages_build_output_dir": "./",
+  "analytics_engine_datasets": [
+    { "binding": "HITS", "dataset": "receipts_hits" }
+  ]
+}
