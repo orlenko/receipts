@@ -2,6 +2,10 @@
 // BYO OpenAI API key; images + key stay local. Calls api.openai.com directly.
 
 import { warpImage, outputSizeFromCorners, validCorners } from './warp.js';
+import { listBatches, getBatchRecord, deleteBatchAndFiles } from './db.js';
+import {
+  submitBatch, refreshStatus, fetchAndProcess, hydrateResults, TERMINAL_STATES,
+} from './batch.js';
 
 const EXTRACTION_PROMPT = `You are extracting structured data from a photo of a receipt.
 
@@ -51,10 +55,17 @@ Output JSON only, no prose, no markdown fences.`;
 const MODEL = 'gpt-5.4';
 const API_MAX_EDGE = 1568;
 const KEY_STORAGE = 'receipts.openai_key';
+const MODE_STORAGE = 'receipts.mode';
+
+// Cost estimates per receipt, used in the queue summary so the user sees
+// what they're about to spend with each mode.
+const COST_LIVE = 0.01;
+const COST_BATCH = 0.005;
 
 // ---------- state ----------
 const state = {
   apiKey: localStorage.getItem(KEY_STORAGE) || '',
+  mode: localStorage.getItem(MODE_STORAGE) === 'batch' ? 'batch' : 'live',
   queue: [], // [{id, file, thumbUrl}]
   results: [], // [{id, file, fields, status, reasons, processedBlob, processedUrl}]
 };
@@ -72,20 +83,31 @@ const fileInput = $('file-input');
 const queueSection = $('queue-section');
 const queueSummary = $('queue-summary');
 const queueList = $('queue-list');
-const processBtn = $('process-btn');
+const modeLiveBtn = $('mode-live');
+const modeBatchBtn = $('mode-batch');
+const modeNote = $('mode-note');
+const runBtn = $('run-btn');
 const clearQueueBtn = $('clear-queue-btn');
+
+const batchesSection = $('batches-section');
+const batchList = $('batch-list');
 
 const resultsSection = $('results-section');
 const resultsList = $('results-list');
 const downloadAllBtn = $('download-all-btn');
+const downloadCsvBtn = $('download-csv-btn');
+
+const PLATFORM_BATCH_URL = (id) => `https://platform.openai.com/batches/${id}`;
 
 // ---------- API key ----------
 function renderKeyStatus() {
   if (state.apiKey) {
-    keyStatus.textContent = `Key set (ends in …${state.apiKey.slice(-4)}).`;
+    keyStatus.textContent = `Key saved locally (ends in …${state.apiKey.slice(-4)}). Ready to process.`;
+    keyStatus.classList.add('is-set');
     keyInput.value = '';
   } else {
-    keyStatus.textContent = 'No key set. Paste one above.';
+    keyStatus.textContent = 'No key saved yet — paste one above to begin.';
+    keyStatus.classList.remove('is-set');
   }
 }
 saveKeyBtn.addEventListener('click', () => {
@@ -128,18 +150,21 @@ function renderQueue() {
     return;
   }
   queueSection.hidden = false;
-  queueSummary.textContent = `${state.queue.length} file${state.queue.length === 1 ? '' : 's'} ready.`;
+  const n = state.queue.length;
+  const perCost = state.mode === 'batch' ? COST_BATCH : COST_LIVE;
+  queueSummary.textContent = `${String(n).padStart(2, '0')} file${n === 1 ? '' : 's'} ready · ~$${(n * perCost).toFixed(2)} at OpenAI`;
   queueList.innerHTML = '';
-  for (const item of state.queue) {
+  state.queue.forEach((item, i) => {
     const li = document.createElement('li');
     li.dataset.id = item.id;
     li.innerHTML = `
+      <span class="idx">${String(i + 1).padStart(2, '0')}</span>
       <img class="thumb" src="${item.thumbUrl}" alt="" />
       <span class="name">${escapeHtml(item.file.name)}</span>
       <span class="status">queued</span>
     `;
     queueList.appendChild(li);
-  }
+  });
 }
 clearQueueBtn.addEventListener('click', () => {
   for (const item of state.queue) URL.revokeObjectURL(item.thumbUrl);
@@ -285,15 +310,212 @@ function setQueueStatus(id, text, klass = '') {
   if (!li) return;
   li.textContent = text;
   li.className = 'status' + (klass ? ` ${klass}` : '');
+  if (!klass && /processing/i.test(text)) li.setAttribute('data-busy', '');
+  else li.removeAttribute('data-busy');
 }
 
-processBtn.addEventListener('click', async () => {
+// ---------- shared: prepare image for API ----------
+async function prepareApiBlob(file) {
+  const srcCanvas = await fileToCanvas(file);
+  const apiCanvas = downscaleForApi(srcCanvas);
+  return await canvasToJpegBlob(apiCanvas, 0.85);
+}
+
+// ---------- mode switch ----------
+function setMode(m) {
+  state.mode = m;
+  localStorage.setItem(MODE_STORAGE, m);
+  modeLiveBtn.setAttribute('aria-selected', String(m === 'live'));
+  modeBatchBtn.setAttribute('aria-selected', String(m === 'batch'));
+  modeLiveBtn.classList.toggle('is-on', m === 'live');
+  modeBatchBtn.classList.toggle('is-on', m === 'batch');
+  modeNote.textContent = m === 'live'
+    ? 'Each receipt fires its own request and shows up as it finishes. Best when you want to watch them roll in.'
+    : 'Submitted to OpenAI\u2019s Batch API. Cheaper, takes a few minutes — but it survives a tab close: come back here, paste nothing, your batch is waiting.';
+  runBtn.textContent = m === 'live' ? 'Process now' : 'Submit batch';
+  renderQueue();
+}
+modeLiveBtn.addEventListener('click', () => setMode('live'));
+modeBatchBtn.addEventListener('click', () => setMode('batch'));
+setMode(state.mode);
+
+runBtn.addEventListener('click', () => {
+  if (state.mode === 'batch') runBatchSubmission();
+  else runLiveProcessing();
+});
+
+// ---------- batch flow ----------
+let pollInterval = null;
+
+async function runBatchSubmission() {
+  if (!state.apiKey) { alert('Please save your OpenAI API key first.'); return; }
+  if (!state.queue.length) return;
+  runBtn.disabled = true;
+  clearQueueBtn.disabled = true;
+
+  const queueSnapshot = state.queue.slice();
+  for (const item of queueSnapshot) setQueueStatus(item.id, 'preparing…');
+
+  try {
+    const record = await submitBatch({
+      queue: queueSnapshot,
+      prepareApiBlob,
+      extractionPrompt: EXTRACTION_PROMPT,
+      model: MODEL,
+      apiKey: state.apiKey,
+      onProgress: (msg) => {
+        for (const item of queueSnapshot) setQueueStatus(item.id, msg.length > 50 ? msg.slice(0, 50) + '…' : msg);
+      },
+    });
+    for (const item of queueSnapshot) URL.revokeObjectURL(item.thumbUrl);
+    state.queue = [];
+    renderQueue();
+    await refreshAndRenderBatches();
+    startPolling();
+    alert(
+      `Batch submitted!\n\nID: ${record.batch_id}\n\nBookmark this URL — your batch lives on OpenAI for ~30 days, even if you wipe your browser:\n${PLATFORM_BATCH_URL(record.batch_id)}`
+    );
+  } catch (e) {
+    console.error(e);
+    alert(`Submit failed: ${e.message}`);
+    for (const item of queueSnapshot) setQueueStatus(item.id, 'submit failed', 'error');
+  } finally {
+    runBtn.disabled = false;
+    clearQueueBtn.disabled = false;
+  }
+}
+
+async function refreshAndRenderBatches({ poll = false } = {}) {
+  const all = await listBatches();
+  if (!all.length) { batchesSection.hidden = true; return; }
+  // If polling, refresh non-terminal batches' status from the API.
+  if (poll && state.apiKey) {
+    for (const rec of all) {
+      if (!TERMINAL_STATES.has(rec.status_cache)) {
+        try { await refreshStatus(rec.batch_id, state.apiKey); } catch (e) { console.warn('poll failed for', rec.batch_id, e); }
+      }
+    }
+  }
+  const fresh = await listBatches();
+  fresh.sort((a, b) => (b.submitted_at || 0) - (a.submitted_at || 0));
+  renderBatchList(fresh);
+  batchesSection.hidden = false;
+}
+
+function renderBatchList(records) {
+  batchList.innerHTML = '';
+  for (const rec of records) {
+    const status = rec.status_cache || 'unknown';
+    const counts = rec.request_counts;
+    const total = rec.items?.length ?? counts?.total ?? 0;
+    const completed = counts?.completed ?? 0;
+    const failed = counts?.failed ?? 0;
+    const isComplete = status === 'completed';
+    const li = document.createElement('li');
+    li.className = 'batch-item';
+    li.dataset.batchId = rec.batch_id;
+    const statusBadge = `<span class="badge status-${status}">${escapeHtml(status)}</span>`;
+    const progress = (counts && total) ? `${completed}/${total} done${failed ? `, ${failed} failed` : ''}` : `${total} receipts`;
+    const fetchLabel = rec.fetched ? 'Show results' : (isComplete ? 'Fetch results' : 'Fetch results');
+    li.innerHTML = `
+      <div class="batch-head">
+        <span class="batch-id mono">${escapeHtml(rec.batch_id)}</span>
+        ${statusBadge}
+      </div>
+      <div class="batch-meta">
+        ${escapeHtml(progress)} · submitted ${formatRelative(rec.submitted_at)}
+      </div>
+      <div class="batch-link">
+        <a href="${PLATFORM_BATCH_URL(rec.batch_id)}" target="_blank" rel="noopener">${escapeHtml(PLATFORM_BATCH_URL(rec.batch_id))}</a>
+        <p class="batch-link-note">Bookmark this — your batch lives on OpenAI for ~30 days. You can recover the JSONL output from there even if your browser data is wiped.</p>
+      </div>
+      <div class="batch-actions">
+        <button data-act="refresh" class="btn btn-ghost">Refresh status</button>
+        <button data-act="fetch" class="btn btn-primary" ${(isComplete || rec.fetched) ? '' : 'disabled'}>${fetchLabel}</button>
+        <button data-act="delete" class="btn btn-ghost" type="button">Delete</button>
+      </div>
+    `;
+    li.querySelector('[data-act="refresh"]').addEventListener('click', () => onRefreshBatch(rec.batch_id));
+    li.querySelector('[data-act="fetch"]').addEventListener('click', () => onFetchBatch(rec.batch_id));
+    li.querySelector('[data-act="delete"]').addEventListener('click', () => onDeleteBatch(rec.batch_id));
+    batchList.appendChild(li);
+  }
+}
+
+async function onRefreshBatch(batch_id) {
+  if (!state.apiKey) { alert('Please save your OpenAI API key first.'); return; }
+  try {
+    await refreshStatus(batch_id, state.apiKey);
+    await refreshAndRenderBatches();
+  } catch (e) {
+    alert(`Refresh failed: ${e.message}`);
+  }
+}
+
+async function onFetchBatch(batch_id) {
+  const rec = await getBatchRecord(batch_id);
+  if (!rec) return;
+
+  // If we've already fetched and warped, just re-render from IDB.
+  if (rec.fetched) {
+    state.results = hydrateResults(rec).map(attachProcessedUrl);
+    renderResults();
+    document.getElementById('results-section')?.scrollIntoView({ behavior: 'smooth' });
+    return;
+  }
+
+  if (!state.apiKey) { alert('Please save your OpenAI API key first.'); return; }
+  try {
+    const results = await fetchAndProcess({
+      batch_id,
+      apiKey: state.apiKey,
+      classifyOutcome,
+      buildSlug,
+      onProgress: (msg) => console.log(msg),
+    });
+    state.results = results.map(attachProcessedUrl);
+    renderResults();
+    await refreshAndRenderBatches();
+    document.getElementById('results-section')?.scrollIntoView({ behavior: 'smooth' });
+  } catch (e) {
+    alert(`Fetch failed: ${e.message}`);
+  }
+}
+
+async function onDeleteBatch(batch_id) {
+  if (!confirm(`Delete batch ${batch_id} and its source files from this browser?\n\nIt will still exist on OpenAI for ~30 days; you can recover it from ${PLATFORM_BATCH_URL(batch_id)}.`)) return;
+  await deleteBatchAndFiles(batch_id);
+  await refreshAndRenderBatches();
+}
+
+function attachProcessedUrl(r) {
+  return {
+    ...r,
+    processedUrl: r.processedBlob ? URL.createObjectURL(r.processedBlob) : null,
+  };
+}
+
+function startPolling() {
+  if (pollInterval) return;
+  pollInterval = setInterval(() => { refreshAndRenderBatches({ poll: true }); }, 30_000);
+}
+
+function formatRelative(ts) {
+  if (!ts) return 'just now';
+  const sec = Math.floor((Date.now() - ts) / 1000);
+  if (sec < 60) return `${sec}s ago`;
+  if (sec < 3600) return `${Math.floor(sec / 60)}m ago`;
+  if (sec < 86400) return `${Math.floor(sec / 3600)}h ago`;
+  return `${Math.floor(sec / 86400)}d ago`;
+}
+
+async function runLiveProcessing() {
   if (!state.apiKey) {
     alert('Please paste your OpenAI API key first.');
     return;
   }
   if (!state.queue.length) return;
-  processBtn.disabled = true;
+  runBtn.disabled = true;
   clearQueueBtn.disabled = true;
   for (const item of state.queue) {
     setQueueStatus(item.id, 'processing…');
@@ -307,9 +529,9 @@ processBtn.addEventListener('click', async () => {
       setQueueStatus(item.id, `error: ${e.message.slice(0, 40)}`, 'error');
     }
   }
-  processBtn.disabled = false;
+  runBtn.disabled = false;
   clearQueueBtn.disabled = false;
-});
+}
 
 // ---------- results ----------
 function renderResults() {
@@ -322,39 +544,62 @@ function renderResults() {
   for (const r of state.results) {
     const card = document.createElement('div');
     card.className = 'result-card';
-    const badge = r.status === 'ok' ? `<span class="badge ok">ok</span>` :
-      `<span class="badge review">review: ${escapeHtml(r.reasons.join(', '))}</span>`;
-    const dl = document.createElement('dl');
-    const rows = [
-      ['vendor',   r.fields.vendor],
-      ['brand',    r.fields.brand],
-      ['address',  r.fields.address],
-      ['date',     r.fields.date],
-      ['subtotal', fmtNum(r.fields.subtotal)],
-      ['tax',      fmtNum(r.fields.tax)],
-      ['amount',   fmtNum(r.fields.amount)],
-      ['currency', r.fields.currency],
-      ['quality',  r.fields.quality],
-    ];
-    for (const [k, v] of rows) {
-      if (v == null || v === '') continue;
-      const dt = document.createElement('dt'); dt.textContent = k;
-      const dd = document.createElement('dd'); dd.style.margin = '0'; dd.textContent = String(v);
-      dl.appendChild(dt); dl.appendChild(dd);
-    }
+
+    const badgeClass = r.status === 'ok' ? 'ok' : r.status === 'error' ? 'error' : 'review';
+    const badgeLabel = r.status === 'ok' ? 'ok' : r.status === 'error' ? 'error' : 'review';
+    const reasonsHtml = (r.status !== 'ok' && r.reasons?.length)
+      ? `<span class="reasons">${escapeHtml(r.reasons.join(' · '))}</span>` : '';
+
+    const slugBase = r.slug || r.file.name.replace(/\.[^.]+$/, '');
+
+    const imgHtml = r.processedUrl
+      ? `<img class="processed" src="${r.processedUrl}" alt="Processed scan of ${escapeHtml(r.file.name)}" />`
+      : `<div class="processed processed-empty" aria-label="No image (warp failed or source unavailable)">no image</div>`;
+
     card.innerHTML = `
-      <img class="processed" src="${r.processedUrl}" alt="processed receipt" />
+      ${imgHtml}
       <div class="fields">
-        <div><strong>${escapeHtml(r.file.name)}</strong> ${badge}</div>
+        <div class="fields-head">
+          <span class="file-name">${escapeHtml(slugBase)}.jpg</span>
+          <span class="badge ${badgeClass}">${badgeLabel}</span>
+          ${reasonsHtml}
+        </div>
+        <dl></dl>
         <div class="actions">
-          <button data-act="dl-jpg">Download JPG</button>
-          <button data-act="dl-json" class="secondary">Download JSON</button>
+          <button data-act="dl-jpg" class="btn btn-ghost">Download JPG</button>
+          <button data-act="dl-json" class="btn btn-ghost">Download JSON</button>
         </div>
       </div>
     `;
-    card.querySelector('.fields').appendChild(dl);
-    card.querySelector('[data-act="dl-jpg"]').addEventListener('click', () => downloadBlob(r.processedBlob, `${r.slug || r.file.name.replace(/\.[^.]+$/, '')}.jpg`));
-    card.querySelector('[data-act="dl-json"]').addEventListener('click', () => downloadJson(r.fields, `${r.slug || r.file.name.replace(/\.[^.]+$/, '')}.json`));
+
+    const dl = card.querySelector('dl');
+    const rows = [
+      ['vendor',   r.fields.vendor,  false],
+      ['brand',    r.fields.brand,   false],
+      ['address',  r.fields.address, false],
+      ['date',     r.fields.date,    true],
+      ['subtotal', fmtNum(r.fields.subtotal), true],
+      ['tax',      fmtNum(r.fields.tax),      true],
+      ['amount',   fmtNum(r.fields.amount),   true],
+      ['currency', r.fields.currency, true],
+      ['quality',  r.fields.quality,  false],
+    ];
+    for (const [k, v, numeric] of rows) {
+      if (v == null || v === '') continue;
+      const dt = document.createElement('dt'); dt.textContent = k;
+      const dd = document.createElement('dd'); dd.textContent = String(v);
+      if (numeric) dd.className = 'num';
+      dl.appendChild(dt); dl.appendChild(dd);
+    }
+
+    const dlJpgBtn = card.querySelector('[data-act="dl-jpg"]');
+    if (r.processedBlob) {
+      dlJpgBtn.addEventListener('click', () => downloadBlob(r.processedBlob, `${slugBase}.jpg`));
+    } else {
+      dlJpgBtn.disabled = true;
+      dlJpgBtn.title = 'No processed image available';
+    }
+    card.querySelector('[data-act="dl-json"]').addEventListener('click', () => downloadJson(r.fields, `${slugBase}.json`));
     resultsList.appendChild(card);
   }
 }
@@ -368,9 +613,96 @@ downloadAllBtn.addEventListener('click', async () => {
     dir.file('processed.jpg', r.processedBlob);
     dir.file('extracted.json', JSON.stringify(r.fields, null, 2));
   }
+  const okCsv = buildCsv(state.results, 'ok');
+  const reviewCsv = buildCsv(state.results, 'review');
+  if (okCsv) zip.file('ok.csv', '\ufeff' + okCsv);
+  if (reviewCsv) zip.file('review.csv', '\ufeff' + reviewCsv);
   const blob = await zip.generateAsync({ type: 'blob' });
   downloadBlob(blob, 'receipts.zip');
 });
+
+if (downloadCsvBtn) {
+  downloadCsvBtn.addEventListener('click', async () => {
+    if (!state.results.length) return;
+    const okCsv = buildCsv(state.results, 'ok');
+    const reviewCsv = buildCsv(state.results, 'review');
+    if (okCsv && reviewCsv) {
+      // Two files — ship them in a small zip rather than two back-to-back downloads.
+      const miniZip = new JSZip();
+      miniZip.file('ok.csv', '\ufeff' + okCsv);
+      miniZip.file('review.csv', '\ufeff' + reviewCsv);
+      const blob = await miniZip.generateAsync({ type: 'blob' });
+      downloadBlob(blob, 'receipts-csv.zip');
+    } else {
+      const csv = okCsv || reviewCsv;
+      const name = okCsv ? 'ok.csv' : 'review.csv';
+      const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' });
+      downloadBlob(blob, name);
+    }
+  });
+}
+
+// ---------- CSV export ----------
+// Two flavors: "ok" for clean bookkeeping rows, "review" adds status/reasons up
+// front so you can see at a glance why a row needs human attention. Both are
+// sorted ascending by receipt date; rows with an unparseable date sink to the
+// bottom (they're the ones you'll want to fix anyway).
+const OK_COLUMNS = [
+  'date', 'vendor', 'brand',
+  'amount', 'tax', 'subtotal', 'currency',
+  'city', 'region', 'country', 'address', 'phone',
+  'filename', 'slug', 'quality', 'notes',
+];
+const REVIEW_COLUMNS = [
+  'date', 'vendor', 'brand',
+  'amount', 'tax', 'subtotal', 'currency',
+  'status', 'reasons', 'quality', 'notes',
+  'city', 'region', 'country', 'address', 'phone',
+  'filename', 'slug',
+];
+
+function csvCell(v) {
+  if (v == null) return '';
+  const s = String(v);
+  if (/[",\n\r]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+  return s;
+}
+function rowMap(r) {
+  const f = r.fields || {};
+  const fmt = (v) => (typeof v === 'number' ? v.toFixed(2) : (v ?? ''));
+  return {
+    filename: r.file?.name || '',
+    slug: r.slug || '',
+    status: r.status || '',
+    reasons: (r.reasons || []).join('; '),
+    vendor: f.vendor, brand: f.brand, address: f.address,
+    city: f.city, region: f.region, country: f.country, phone: f.phone,
+    date: f.date,
+    subtotal: fmt(f.subtotal),
+    tax: fmt(f.tax),
+    amount: fmt(f.amount),
+    currency: f.currency,
+    quality: f.quality, notes: f.notes,
+  };
+}
+function sortByDate(results) {
+  const dateKey = (r) => {
+    const d = r.fields?.date;
+    return /^\d{4}-\d{2}-\d{2}$/.test(d || '') ? d : '9999-99-99';
+  };
+  return results.slice().sort((a, b) => dateKey(a).localeCompare(dateKey(b)));
+}
+function buildCsv(results, status) {
+  const filtered = sortByDate(results.filter(r => r.status === status));
+  if (!filtered.length) return null;
+  const columns = status === 'ok' ? OK_COLUMNS : REVIEW_COLUMNS;
+  const lines = [columns.join(',')];
+  for (const r of filtered) {
+    const row = rowMap(r);
+    lines.push(columns.map(c => csvCell(row[c])).join(','));
+  }
+  return lines.join('\r\n');
+}
 
 // ---------- download helpers ----------
 function downloadBlob(blob, filename) {
@@ -396,3 +728,13 @@ function fmtNum(v) {
   if (typeof v !== 'number') return v;
   return v.toFixed(2);
 }
+
+// ---------- init ----------
+(async () => {
+  try {
+    await refreshAndRenderBatches({ poll: !!state.apiKey });
+    if (state.apiKey) startPolling();
+  } catch (e) {
+    console.warn('init batches failed:', e);
+  }
+})();
