@@ -11,7 +11,7 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap" media="print" onload="this.media='all'" />
   <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap" /></noscript>
 
-  <link rel="stylesheet" href="styles.css?v=3" />
+  <link rel="stylesheet" href="styles.css?v=8" />
 </head>
 <body>
   <a class="skip-link" href="#step-key">Skip to app</a>
@@ -40,35 +40,41 @@
       <div class="hero-copy">
         <div class="eyebrow">
           <span class="dot-live" aria-hidden="true"></span>
-          Runs entirely in your browser
+          A small thing I made for my own tax prep
         </div>
         <h1>
-          Turn photos of paper&nbsp;receipts into <em>filed, searchable scans.</em>
+          Photos of paper receipts, in. <em>Upright scans and a tidy spreadsheet,</em> out.
         </h1>
         <p class="lede">
-          Drag in JPGs. Get upright, cropped images plus structured fields —
-          vendor, amount, tax, date — ready to drop into your bookkeeping folder.
-          Your OpenAI key and images never pass through our servers, because we
-          don't have any.
+          I built this to speed up my own bookkeeping and figured I'd leave it
+          online in case it's useful to you too. Drag in JPGs, get cropped
+          images plus structured fields &mdash; vendor, amount, tax, date
+          &mdash; ready to drop into a folder.
+        </p>
+
+        <p class="lede-note">
+          This web page <em>is</em> the whole app. No server, no signup, no
+          login, nothing to pay me. You bring your own
+          <a href="#how-to-get-a-key">OpenAI API key</a>; your images and key
+          stay in your browser and talk to OpenAI directly.
         </p>
 
         <ul class="hero-pills" aria-label="What you get">
           <li><span class="pill-glyph" aria-hidden="true">↻</span> Auto-rotated &amp; cropped</li>
           <li><span class="pill-glyph" aria-hidden="true">⌖</span> Structured JSON</li>
-          <li><span class="pill-glyph" aria-hidden="true">⤓</span> One-click ZIP</li>
-          <li><span class="pill-glyph" aria-hidden="true">∅</span> Zero accounts</li>
+          <li><span class="pill-glyph" aria-hidden="true">☷</span> CSV spreadsheet</li>
+          <li><span class="pill-glyph" aria-hidden="true">∅</span> No signup</li>
         </ul>
 
         <div class="hero-cta">
-          <a class="btn btn-primary" href="#step-key">Start — it's free, bring your key</a>
+          <a class="btn btn-primary" href="#step-key">Try it &mdash; bring your own key</a>
           <a class="btn btn-ghost" href="#privacy">What leaves my browser?</a>
         </div>
 
         <p class="hero-foot">
-          <span class="tag-mono">~$0.01 / receipt</span>
-          paid directly to OpenAI &nbsp;·&nbsp;
-          No signup &nbsp;·&nbsp; No cookies &nbsp;·&nbsp;
-          <a href="https://github.com/orlenko/receipts" target="_blank" rel="noopener">MIT on GitHub</a>
+          Free tool, MIT source on
+          <a href="https://github.com/orlenko/receipts" target="_blank" rel="noopener">GitHub</a>.
+          Not affiliated with OpenAI.
         </p>
       </div>
 
@@ -185,11 +191,12 @@
         <header class="step-head">
           <h2 id="batches-title">Your batches</h2>
           <p class="step-sub">
-            Submitted to OpenAI's Batch API (50% cheaper, usually finishes in
-            minutes). They're saved here in your browser — close the tab and come
-            back any time. The batch IDs are also valid on
-            <code>platform.openai.com</code> for ~30 days, so your data is
-            recoverable even if your browser data is wiped.
+            Submitted to OpenAI's Batch API (usually done in a few minutes, and
+            cheaper than the fast mode). They're saved here in your browser
+            &mdash; close the tab, come back whenever. The batch IDs are also
+            valid on <code>platform.openai.com</code> for ~30 days (their
+            retention), so your data is recoverable even if your browser data
+            gets wiped.
           </p>
         </header>
 
@@ -244,21 +251,21 @@
         <header class="step-head">
           <h2 id="step-queue-title">Process the queue</h2>
           <p class="step-sub">
-            Each file hits OpenAI's vision endpoint once. You'll see a status next
-            to each row as it moves from <em>queued</em> → <em>processing</em> →
-            <em>ok</em> / <em>review</em>.
+            Each file hits OpenAI's vision endpoint. Status flips from
+            <em>queued</em> → <em>processing</em> → <em>ok</em> / <em>review</em>.
+            The whole bill lands on <em>your</em> OpenAI account.
           </p>
         </header>
 
         <div class="card queue-card">
           <div class="mode-switch" role="tablist" aria-label="Choose processing mode">
             <button id="mode-live" type="button" role="tab" class="mode-opt is-on" aria-selected="true">
-              <span class="mode-name">Live</span>
-              <span class="mode-meta">instant · full price (~$0.01 ea)</span>
+              <span class="mode-name">Fast</span>
+              <span class="mode-meta">instant &middot; watch each one come back</span>
             </button>
             <button id="mode-batch" type="button" role="tab" class="mode-opt" aria-selected="false">
               <span class="mode-name">Batch</span>
-              <span class="mode-meta">~50% off · finishes in a few minutes</span>
+              <span class="mode-meta">cheaper via OpenAI's Batch API &middot; usually done in minutes</span>
             </button>
           </div>
           <p id="mode-note" class="mode-note"></p>
@@ -310,9 +317,11 @@
           <p class="eyebrow eyebrow-dark"><span class="dot-live" aria-hidden="true"></span> PRIVACY, IN&nbsp;PLAIN&nbsp;TERMS</p>
           <h2 id="privacy-title">What leaves your browser, and what doesn't.</h2>
           <p>
-            This is a plain static web page. Open the Network tab in DevTools and
-            you'll see exactly two hosts: wherever you loaded the page from, and
-            <code>api.openai.com</code>. That's it.
+            This is a static HTML page I host on a personal subdomain. Open the
+            Network tab in DevTools and you'll see exactly two hosts: wherever
+            you loaded the page from, and <code>api.openai.com</code>. That's it.
+            I'm not affiliated with OpenAI — your key goes to them, your bill
+            comes from them.
           </p>
         </div>
         <dl class="privacy-list">
@@ -347,31 +356,43 @@
               <li>Go to <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">platform.openai.com/api-keys</a> and sign in.</li>
               <li>Click <em>Create new secret key</em>. Give it any name.</li>
               <li>Copy the <code>sk-…</code> string and paste it into step 01.</li>
-              <li>Add a small amount of credit at <a href="https://platform.openai.com/settings/organization/billing" target="_blank" rel="noopener">Billing</a>. $5 is enough for ~1,000 receipts.</li>
+              <li>Add a small amount of credit at <a href="https://platform.openai.com/settings/organization/billing" target="_blank" rel="noopener">Billing</a>. A few bucks tends to go a long way &mdash; usually hundreds of receipts, but OpenAI sets the rate, not me.</li>
             </ol>
           </div>
         </details>
 
         <details>
-          <summary><span class="faq-q">How much will this cost me?</span><span class="faq-chev" aria-hidden="true">+</span></summary>
+          <summary><span class="faq-q">What will it cost me?</span><span class="faq-chev" aria-hidden="true">+</span></summary>
           <div class="faq-a">
+            <p>
+              The tool itself is free. The actual cost is whatever OpenAI charges
+              you for the vision API call, billed directly to your OpenAI account.
+              I'm not affiliated with them and don't know your exact rate &mdash;
+              <a href="https://openai.com/api/pricing/" target="_blank" rel="noopener">check their pricing page</a>
+              for what applies to you.
+            </p>
+            <p class="faq-anecdote">
+              Anecdotally, from my own use, it's tended to be somewhere around:
+            </p>
             <table class="faq-table">
               <thead>
-                <tr><th>Option</th><th>Per receipt</th><th>Notes</th></tr>
+                <tr><th>Mode</th><th>Roughly</th></tr>
               </thead>
               <tbody>
                 <tr>
-                  <td><strong>This tool</strong></td>
-                  <td class="mono">~$0.01</td>
-                  <td>You pay OpenAI directly for a single vision call.</td>
+                  <td>Fast</td>
+                  <td class="mono">~1¢ per receipt</td>
                 </tr>
                 <tr>
-                  <td>Typical SaaS OCR</td>
-                  <td class="mono">$0.05 – $0.30</td>
-                  <td>Dashboard, SOC2, support staff — you pay for all of it.</td>
+                  <td>Batch</td>
+                  <td class="mono">under half a cent per receipt</td>
                 </tr>
               </tbody>
             </table>
+            <p class="small-note">
+              Your mileage will vary with image size, model pricing changes, and
+              whatever OpenAI's doing with Batch discounts that week.
+            </p>
           </div>
         </details>
 
@@ -402,14 +423,29 @@
         </details>
 
         <details>
+          <summary><span class="faq-q">Who made this? Is it a product?</span><span class="faq-chev" aria-hidden="true">+</span></summary>
+          <div class="faq-a">
+            <p>
+              Just a person, not a product. I built it to speed up my own tax
+              prep and put it online in case it helps someone else. It's MIT-licensed,
+              hosted on a personal subdomain, no signup, no payment to me, no
+              analytics beyond anonymous pageviews. If you want to tweak it,
+              fork the <a href="https://github.com/orlenko/receipts" target="_blank" rel="noopener">repo</a>.
+              I'm not affiliated with OpenAI; I just call their API.
+            </p>
+          </div>
+        </details>
+
+        <details>
           <summary><span class="faq-q">Why not just use a SaaS OCR product?</span><span class="faq-chev" aria-hidden="true">+</span></summary>
           <div class="faq-a">
             <p>
-              You can, and some are great. This tool exists for the case where you'd
-              rather not hand your financial paperwork — vendor names, amounts, dates,
-              sometimes location data — to yet another company whose retention policy
-              you'll never read. Bring your own key, run it on your own machine,
-              ship the output into your own folder.
+              Plenty of them exist and some are great. This one exists because
+              I personally didn't want to hand my receipts &mdash; vendor names,
+              amounts, dates, sometimes my home address &mdash; to yet another
+              company whose retention policy I'd never read. Bring your own key,
+              run it on your own machine, ship the output into your own folder.
+              Close the tab and it's gone.
             </p>
           </div>
         </details>
@@ -425,7 +461,7 @@
     <div class="foot-inner">
       <div class="foot-brand">
         <div class="wordmark"><span class="wordmark-dot" aria-hidden="true"></span> receipts</div>
-        <p class="foot-tag">A tiny static page that does one job.</p>
+        <p class="foot-tag">A personal tool I left online. MIT, free, no affiliation with OpenAI.</p>
       </div>
       <ul class="foot-links">
         <li><a href="https://github.com/orlenko/receipts" target="_blank" rel="noopener">Source on GitHub</a></li>
@@ -433,7 +469,7 @@
         <li><a href="#privacy">Privacy</a></li>
         <li><a href="#faq">FAQ</a></li>
       </ul>
-      <p class="foot-mono">Built to be boring. Ships as one HTML, one CSS, one JS.</p>
+      <p class="foot-mono">One HTML, one CSS, one JS. Nothing to sell you.</p>
     </div>
   </footer>
 

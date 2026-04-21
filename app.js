@@ -57,11 +57,6 @@ const API_MAX_EDGE = 1568;
 const KEY_STORAGE = 'receipts.openai_key';
 const MODE_STORAGE = 'receipts.mode';
 
-// Cost estimates per receipt, used in the queue summary so the user sees
-// what they're about to spend with each mode.
-const COST_LIVE = 0.01;
-const COST_BATCH = 0.005;
-
 // ---------- state ----------
 const state = {
   apiKey: localStorage.getItem(KEY_STORAGE) || '',
@@ -151,8 +146,7 @@ function renderQueue() {
   }
   queueSection.hidden = false;
   const n = state.queue.length;
-  const perCost = state.mode === 'batch' ? COST_BATCH : COST_LIVE;
-  queueSummary.textContent = `${String(n).padStart(2, '0')} file${n === 1 ? '' : 's'} ready · ~$${(n * perCost).toFixed(2)} at OpenAI`;
+  queueSummary.textContent = `${String(n).padStart(2, '0')} file${n === 1 ? '' : 's'} ready`;
   queueList.innerHTML = '';
   state.queue.forEach((item, i) => {
     const li = document.createElement('li');
@@ -331,7 +325,7 @@ function setMode(m) {
   modeBatchBtn.classList.toggle('is-on', m === 'batch');
   modeNote.textContent = m === 'live'
     ? 'Each receipt fires its own request and shows up as it finishes. Best when you want to watch them roll in.'
-    : 'Submitted to OpenAI\u2019s Batch API. Cheaper, takes a few minutes — but it survives a tab close: come back here, paste nothing, your batch is waiting.';
+    : 'Submitted to OpenAI\u2019s Batch API. Usually done in a few minutes, and cheaper than fast mode. Bonus: it survives a tab close \u2014 come back here and your batch will be waiting.';
   runBtn.textContent = m === 'live' ? 'Process now' : 'Submit batch';
   renderQueue();
 }
@@ -373,7 +367,7 @@ async function runBatchSubmission() {
     await refreshAndRenderBatches();
     startPolling();
     alert(
-      `Batch submitted!\n\nID: ${record.batch_id}\n\nBookmark this URL — your batch lives on OpenAI for ~30 days, even if you wipe your browser:\n${PLATFORM_BATCH_URL(record.batch_id)}`
+      `Batch submitted to OpenAI.\n\nID: ${record.batch_id}\n\nBookmark this URL \u2014 your batch sits on OpenAI's servers for ~30 days (their retention, not mine), so you can recover it even if you wipe your browser:\n${PLATFORM_BATCH_URL(record.batch_id)}`
     );
   } catch (e) {
     console.error(e);
