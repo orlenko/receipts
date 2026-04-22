@@ -26,6 +26,8 @@ This is a static page. There's no server, no signup, no account, nothing to pay 
 
 ## Run locally
 
+This doubles as a privacy escape hatch: if you'd rather not load anything from my domain, clone the repo, read the code (it's small), and serve it off your own machine.
+
 ```bash
 python3 -m http.server 8000
 # open http://localhost:8000

@@ -420,6 +420,27 @@
               </div>
             </details>
 
+            <details>
+              <summary><span class="faq-q">Can I run this without using your hosted page?</span><span class="faq-chev" aria-hidden="true">+</span></summary>
+              <div class="faq-a">
+                <p>
+                  Yes — that's the point of it being a static page. Clone
+                  <a href="https://github.com/orlenko/receipts" target="_blank" rel="noopener">github.com/orlenko/receipts</a>,
+                  read every line (it's small), and serve it with any static
+                  server you like — for example <code>python3 -m http.server 8000</code>.
+                  Same JS, same behavior, your network tab, your audit. You never
+                  load a byte from my domain.
+                </p>
+                <p>
+                  If you'd rather just confirm the hosted version is doing exactly
+                  that: open DevTools → Network while you use it. You'll see
+                  exactly two hosts — wherever you loaded the page from, and
+                  <code>api.openai.com</code> or <code>openrouter.ai</code>
+                  depending on which sign-in path you took.
+                </p>
+              </div>
+            </details>
+
           </div>
         </div>
       </details>
