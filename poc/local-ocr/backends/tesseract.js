@@ -27,12 +27,21 @@ async function getWorker() {
     logStep('tesseract: fetching tesseract.js (~2 MB)…');
     await ensureScript();
     logStep('tesseract: creating worker (downloads eng + fra language data, ~7 MB)…');
-    // Route Tesseract's own progress messages to the UI so the user sees stages.
+    // Tesseract fires progress messages several times per second during init
+    // and recognize. Route only status transitions + 20% progress buckets to
+    // the UI; pushing every tick blew up the log pane and locked the main
+    // thread. Everything else still goes to console.debug for inspection.
+    let lastStatus = null;
+    let lastBucket = -1;
     return window.Tesseract.createWorker(['eng', 'fra'], 1, {
       logger: (m) => {
-        if (!m) return;
-        if (typeof m.progress === 'number' && m.status) {
-          logStep(`tesseract: ${m.status} ${Math.round(m.progress * 100)}%`);
+        if (!m || !m.status) return;
+        const pct = typeof m.progress === 'number' ? Math.round(m.progress * 100) : -1;
+        const bucket = pct >= 0 ? Math.floor(pct / 20) : -1;
+        if (m.status !== lastStatus || (bucket > lastBucket && bucket >= 0)) {
+          logStep(`tesseract: ${m.status}${pct >= 0 ? ` ${pct}%` : ''}`);
+          lastStatus = m.status;
+          lastBucket = bucket;
         }
       },
     });

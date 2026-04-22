@@ -26,9 +26,16 @@ function freshStats() {
   return { processed: 0, total: 0, corners: 0, brand: 0, date: 0, amount: 0, tax: 0, totalTime: 0 };
 }
 
+// Bounded log: without this, Tesseract's per-event logger fires thousands
+// of times and each log() call was rebuilding the entire textContent blob.
+// That turns into O(N²) and the main thread never gets a tick back.
+const LOG_MAX_LINES = 80;
+const logLines = [];
 function log(msg) {
   const line = `${new Date().toLocaleTimeString()}  ${msg}`;
-  logEl.textContent = line + '\n' + logEl.textContent;
+  logLines.unshift(line);
+  if (logLines.length > LOG_MAX_LINES) logLines.length = LOG_MAX_LINES;
+  logEl.textContent = logLines.join('\n');
 }
 
 // Force the browser to paint before the next blocking task. Two rAFs is a
