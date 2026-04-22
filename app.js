@@ -362,6 +362,10 @@ function renderRows() {
   // "all done, grab your zip" the moment the first row lands.
   const haveExportable = state.results.some(r => r.status === 'ok' || r.status === 'review');
   downloadAllBtn.hidden = state.isProcessing || !haveExportable;
+  // Hide the bulk Process/Submit button once every queued item has a result.
+  // Retries are per-row via Reprocess; no need for a batch trigger then.
+  const havePending = state.queue.some(q => !resultsById.has(q.id));
+  runBtn.hidden = !havePending;
 }
 
 function buildRow(item, result, idx) {
