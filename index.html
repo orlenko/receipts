@@ -26,7 +26,7 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap" media="print" onload="this.media='all'" />
   <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap" /></noscript>
 
-  <link rel="stylesheet" href="styles.css?v=15" />
+  <link rel="stylesheet" href="styles.css?v=16" />
 </head>
 <body data-app-state="first">
   <a class="skip-link" href="#drop-zone">Skip to app</a>
@@ -444,19 +444,17 @@
         <div class="row-body">
           <div class="row-head">
             <span class="row-name"></span>
-            <span class="row-status"><span class="row-status-dot"></span><span class="row-status-text">queued</span></span>
+            <span class="row-vendor"></span>
           </div>
-          <div class="row-meta" hidden>
-            <span class="rm-brand"></span>
-            <span class="rm-dot" aria-hidden="true">·</span>
+          <div class="row-meta">
+            <span class="row-status"><span class="row-status-dot"></span><span class="row-status-text">queued</span></span>
             <span class="rm-amount"></span>
-            <span class="rm-dot" aria-hidden="true">·</span>
             <span class="rm-date"></span>
           </div>
         </div>
         <div class="row-actions">
           <button class="row-retry btn btn-ghost btn-sm" type="button" hidden>Retry</button>
-          <button class="row-expand btn btn-ghost btn-sm" type="button" aria-expanded="false" hidden>Details</button>
+          <span class="row-chevron" aria-hidden="true" hidden>▾</span>
         </div>
       </div>
       <div class="row-expand-body" hidden>
@@ -473,6 +471,6 @@
   </template>
 
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-  <script type="module" src="app.js?v=12"></script>
+  <script type="module" src="app.js?v=13"></script>
 </body>
 </html>

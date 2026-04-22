@@ -415,27 +415,27 @@ function applyResultToRow(node, item, r) {
   setRowStatus(node, label, stateClass);
 
   const f = r.fields || {};
-  // Once we know the brand, the row’s primary identifier becomes the brand
-  // ("Canadian Tire") rather than the camera-roll filename. The brand piece
-  // is then dropped from the meta line to avoid a redundant repeat.
-  const brand = f.brand || f.vendor || '';
-  if (brand) node.querySelector('.row-name').textContent = brand;
-  const meta = node.querySelector('.row-meta');
-  const rmBrand = node.querySelector('.rm-brand');
-  const firstDot = rmBrand.nextElementSibling;
-  rmBrand.remove();
-  firstDot?.remove();
+  node.querySelector('.row-vendor').textContent = f.brand || f.vendor || '';
   node.querySelector('.rm-amount').textContent = typeof f.amount === 'number' ? f.amount.toFixed(2) : (f.amount || '');
   node.querySelector('.rm-date').textContent = f.date || '';
-  meta.hidden = false;
 
-  const expandBtn = node.querySelector('.row-expand');
+  // Whole row-main is the expand/collapse target — chevron is just the
+  // visual cue. role=button + tabindex + keydown keeps it keyboard-reachable.
+  const main = node.querySelector('.row-main');
   const expandBody = node.querySelector('.row-expand-body');
-  expandBtn.hidden = false;
-  expandBtn.addEventListener('click', () => {
+  const chevron = node.querySelector('.row-chevron');
+  chevron.hidden = false;
+  main.setAttribute('role', 'button');
+  main.setAttribute('tabindex', '0');
+  main.setAttribute('aria-expanded', 'false');
+  const toggle = () => {
     const opening = expandBody.hidden;
     expandBody.hidden = !opening;
-    expandBtn.setAttribute('aria-expanded', String(opening));
+    main.setAttribute('aria-expanded', String(opening));
+  };
+  main.addEventListener('click', toggle);
+  main.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); }
   });
 
   const processed = node.querySelector('.row-processed');
@@ -475,7 +475,10 @@ function applyResultToRow(node, item, r) {
   const retryBtn = node.querySelector('.row-retry');
   if (r.status === 'error' || r.status === 'review') {
     retryBtn.hidden = false;
-    retryBtn.addEventListener('click', () => reprocessOne(item.id));
+    retryBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      reprocessOne(item.id);
+    });
   }
 }
 
