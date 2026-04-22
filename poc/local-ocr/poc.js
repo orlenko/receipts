@@ -128,10 +128,14 @@ async function run() {
   log(`Loading backend: ${backendName}…`);
   await yieldToPaint();
 
+  // Cache-bust the dynamic import — browsers cache ES module URLs aggressively
+  // and a normal reload sometimes doesn't fetch backends/*.js even after edits.
+  // Bumping this string forces a fresh fetch without needing DevTools cache tricks.
+  const BACKEND_V = '3';
   let backend;
   try {
-    if (backendName === 'tesseract') backend = await import('./backends/tesseract.js');
-    else backend = await import('./backends/paddle.js');
+    if (backendName === 'tesseract') backend = await import(`./backends/tesseract.js?v=${BACKEND_V}`);
+    else backend = await import(`./backends/paddle.js?v=${BACKEND_V}`);
   } catch (err) {
     log(`Backend failed to load: ${err.message}`);
     return finish();
