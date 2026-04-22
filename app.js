@@ -95,6 +95,12 @@ const state = {
   mode: localStorage.getItem(MODE_STORAGE) === 'batch' ? 'batch' : 'live',
   queue: [], // [{id, file, thumbUrl}]
   results: [], // [{id, file, fields, status, reasons, processedBlob, processedUrl}]
+  // Live-mode progress: which queue item is currently in flight, plus index/total
+  // for the queue-summary readout. Set/cleared by runLiveProcessing.
+  isProcessing: false,
+  processingId: null,
+  processingIndex: 0,
+  processingTotal: 0,
 };
 
 function persistAuth(provider, key) {
@@ -345,10 +351,17 @@ function renderRows() {
   }
   const total = i;
   const done = state.results.length;
-  queueSummary.textContent = done
-    ? `${String(done).padStart(2, '0')}/${String(total).padStart(2, '0')} done`
-    : `${String(total).padStart(2, '0')} file${total === 1 ? '' : 's'} ready`;
-  downloadAllBtn.hidden = !state.results.some(r => r.status === 'ok' || r.status === 'review');
+  if (state.isProcessing && state.processingTotal) {
+    queueSummary.textContent = `Processing ${String(state.processingIndex).padStart(2, '0')} of ${String(state.processingTotal).padStart(2, '0')}…`;
+  } else {
+    queueSummary.textContent = done
+      ? `${String(done).padStart(2, '0')}/${String(total).padStart(2, '0')} done`
+      : `${String(total).padStart(2, '0')} file${total === 1 ? '' : 's'} ready`;
+  }
+  // Hide the download button while work is in flight — otherwise it reads as
+  // "all done, grab your zip" the moment the first row lands.
+  const haveExportable = state.results.some(r => r.status === 'ok' || r.status === 'review');
+  downloadAllBtn.hidden = state.isProcessing || !haveExportable;
 }
 
 function buildRow(item, result, idx) {
@@ -362,8 +375,13 @@ function buildRow(item, result, idx) {
   node.querySelector('.row-name').textContent = item.file?.name || '(unnamed)';
 
   if (!result) {
-    node.dataset.state = 'queued';
-    setRowStatus(node, 'queued', '');
+    if (state.processingId === item.id) {
+      node.dataset.state = 'working';
+      setRowStatus(node, 'processing…', '');
+    } else {
+      node.dataset.state = 'queued';
+      setRowStatus(node, 'queued', '');
+    }
     return node;
   }
   applyResultToRow(node, item, result);
@@ -397,8 +415,16 @@ function applyResultToRow(node, item, r) {
   setRowStatus(node, label, stateClass);
 
   const f = r.fields || {};
+  // Once we know the brand, the row’s primary identifier becomes the brand
+  // ("Canadian Tire") rather than the camera-roll filename. The brand piece
+  // is then dropped from the meta line to avoid a redundant repeat.
+  const brand = f.brand || f.vendor || '';
+  if (brand) node.querySelector('.row-name').textContent = brand;
   const meta = node.querySelector('.row-meta');
-  node.querySelector('.rm-brand').textContent = f.brand || f.vendor || '';
+  const rmBrand = node.querySelector('.rm-brand');
+  const firstDot = rmBrand.nextElementSibling;
+  rmBrand.remove();
+  firstDot?.remove();
   node.querySelector('.rm-amount').textContent = typeof f.amount === 'number' ? f.amount.toFixed(2) : (f.amount || '');
   node.querySelector('.rm-date').textContent = f.date || '';
   meta.hidden = false;
@@ -458,15 +484,22 @@ async function reprocessOne(id) {
   if (!item) { alert('Original photo no longer in this session — cannot retry.'); return; }
   if (!state.apiKey) { alert('Please connect first.'); return; }
   state.results = state.results.filter(r => r.id !== id);
+  state.isProcessing = true;
+  state.processingTotal = 1;
+  state.processingIndex = 1;
+  state.processingId = id;
   renderRows();
-  setRowStatusById(id, 'processing…', '');
   try {
     const result = await processOne(item);
     state.results.push(result);
-    renderRows();
   } catch (e) {
     console.error(e);
     state.results.push({ id, file: item.file, status: 'error', reasons: [e.message.slice(0, 80)], fields: {} });
+  } finally {
+    state.isProcessing = false;
+    state.processingId = null;
+    state.processingIndex = 0;
+    state.processingTotal = 0;
     renderRows();
   }
 }
@@ -658,6 +691,10 @@ async function runBatchSubmission() {
   if (!state.queue.length) return;
   runBtn.disabled = true;
   clearQueueBtn.disabled = true;
+  state.isProcessing = true;
+  state.processingTotal = state.queue.length;
+  state.processingIndex = state.queue.length;  // "Processing N of N…" while uploading
+  renderRows();
 
   const queueSnapshot = state.queue.slice();
   for (const item of queueSnapshot) setRowStatusById(item.id, 'preparing…');
@@ -686,8 +723,12 @@ async function runBatchSubmission() {
     alert(`Submit failed: ${e.message}`);
     for (const item of queueSnapshot) setRowStatusById(item.id, 'submit failed', 'error');
   } finally {
+    state.isProcessing = false;
+    state.processingIndex = 0;
+    state.processingTotal = 0;
     runBtn.disabled = false;
     clearQueueBtn.disabled = false;
+    renderRows();
   }
 }
 
@@ -823,20 +864,44 @@ async function runLiveProcessing() {
   if (!state.queue.length) return;
   runBtn.disabled = true;
   clearQueueBtn.disabled = true;
-  for (const item of state.queue) {
-    setRowStatusById(item.id, 'processing…');
-    try {
-      const result = await processOne(item);
-      state.results.push(result);
-      setRowStatusById(item.id, result.status === 'ok' ? 'ok' : `review: ${result.reasons.join(',')}`, result.status === 'ok' ? 'ok' : 'review');
+  // Only count items that don’t already have a result (e.g. after a Retry on
+  // a failed row sitting next to others that already finished).
+  const todo = state.queue.filter(q => !state.results.some(r => r.id === q.id));
+  state.isProcessing = true;
+  state.processingTotal = todo.length;
+  state.processingIndex = 0;
+  state.processingId = null;
+  renderRows();
+  try {
+    for (const item of todo) {
+      state.processingIndex += 1;
+      state.processingId = item.id;
       renderRows();
-    } catch (e) {
-      console.error(e);
-      setRowStatusById(item.id, `error: ${e.message.slice(0, 40)}`, 'error');
+      try {
+        const result = await processOne(item);
+        state.results.push(result);
+      } catch (e) {
+        console.error(e);
+        state.results.push({
+          id: item.id,
+          file: item.file,
+          status: 'error',
+          reasons: [e.message.slice(0, 80)],
+          fields: {},
+        });
+      }
+      state.processingId = null;
+      renderRows();
     }
+  } finally {
+    state.isProcessing = false;
+    state.processingId = null;
+    state.processingIndex = 0;
+    state.processingTotal = 0;
+    runBtn.disabled = false;
+    clearQueueBtn.disabled = false;
+    renderRows();
   }
-  runBtn.disabled = false;
-  clearQueueBtn.disabled = false;
 }
 
 downloadAllBtn.addEventListener('click', async () => {
