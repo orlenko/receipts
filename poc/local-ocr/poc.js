@@ -1,21 +1,21 @@
-// Comparison harness orchestration: pick folders → parse CSVs → run pipeline
-// per receipt → diff each field against ground truth → update stats table.
+// Comparison harness: one folder picker points at sample-data/processed/,
+// we pair each subdir's processed.jpg with its extracted.json, OCR the JPEG,
+// and diff the extracted fields against the JSON (which is the OpenAI ground
+// truth). No OpenCV anywhere; the JPEGs are already warped.
 
-import { runPipeline, loadOpenCV } from './pipeline.js';
+import { runPipeline } from './pipeline.js';
 import { compareFields } from './fields.js';
 
 const state = {
-  raw: new Map(),       // filename → File
-  gt: new Map(),        // filename → ground-truth field record
+  entries: new Map(),   // subdir name → { jpg: File, gt: object }
   running: false,
   cancel: false,
   stats: freshStats(),
-  thumbUrls: [],        // object URLs for thumb blobs; revoked on reset
+  thumbUrls: [],        // object URLs we create per row; revoked on reset
 };
 
 const $ = (id) => document.getElementById(id);
-const rawInput = $('raw-input');
-const gtInput = $('gt-input');
+const folderInput = $('folder-input');
 const runBtn = $('run-btn');
 const stopBtn = $('stop-btn');
 const limitInput = $('limit-input');
@@ -23,12 +23,11 @@ const logEl = $('log');
 const resultsBody = $('results-body');
 
 function freshStats() {
-  return { processed: 0, total: 0, corners: 0, brand: 0, date: 0, amount: 0, tax: 0, totalTime: 0 };
+  return { processed: 0, total: 0, brand: 0, date: 0, amount: 0, tax: 0, totalTime: 0 };
 }
 
-// Bounded log: without this, Tesseract's per-event logger fires thousands
-// of times and each log() call was rebuilding the entire textContent blob.
-// That turns into O(N²) and the main thread never gets a tick back.
+// Bounded log: keep only the newest N lines so this can't go O(N²) even if
+// something downstream gets chatty.
 const LOG_MAX_LINES = 80;
 const logLines = [];
 function log(msg) {
@@ -38,111 +37,77 @@ function log(msg) {
   logEl.textContent = logLines.join('\n');
 }
 
-// Force the browser to paint before the next blocking task. Two rAFs is a
-// reliable pattern for "my DOM change is visible before we lock up the thread."
+// Double rAF: forces a paint so the most recent log line actually shows
+// BEFORE the next blocking task starts.
 async function yieldToPaint() {
   await new Promise((r) => requestAnimationFrame(() => r()));
   await new Promise((r) => requestAnimationFrame(() => r()));
 }
 
-// ── file pickers ────────────────────────────────────────────────────
+function memSuffix() {
+  const m = performance.memory;
+  if (!m) return '';
+  return `  heap=${Math.round(m.usedJSHeapSize / 1024 / 1024)}MB`;
+}
 
-rawInput.addEventListener('change', (e) => {
-  state.raw.clear();
+// ── folder parsing ──────────────────────────────────────────────────
+
+folderInput.addEventListener('change', async (e) => {
+  state.entries.clear();
+
+  // Group files by their immediate parent dir; match processed.jpg with
+  // extracted.json within each dir. Top-level files (ok.csv, review.csv,
+  // .DS_Store) are ignored — we don't need CSVs; the per-subdir JSON has
+  // everything and it's already associated with the right image.
+  const bySubdir = new Map();
   for (const f of e.target.files) {
-    if (/\.(jpe?g|png)$/i.test(f.name)) {
-      // webkitdirectory gives us names with relative paths; the basename is our key.
-      const base = f.name.split('/').pop();
-      state.raw.set(base, f);
-    }
+    const path = f.webkitRelativePath || f.name;
+    const parts = path.split('/');
+    if (parts.length < 3) continue;
+    const subdir = parts[parts.length - 2];
+    const filename = parts[parts.length - 1];
+    if (filename !== 'processed.jpg' && filename !== 'extracted.json') continue;
+    if (!bySubdir.has(subdir)) bySubdir.set(subdir, {});
+    const entry = bySubdir.get(subdir);
+    if (filename === 'processed.jpg') entry.jpg = f;
+    else entry.json = f;
   }
-  log(`Raw folder: ${state.raw.size} image(s).`);
-  refreshRunButton();
-});
 
-gtInput.addEventListener('change', async (e) => {
-  state.gt.clear();
-  const csvFiles = Array.from(e.target.files).filter((f) => /(?:^|\/)(ok|review)\.csv$/i.test(f.webkitRelativePath || f.name));
-  if (!csvFiles.length) {
-    log(`Ground truth folder: no ok.csv or review.csv found.`);
-    refreshRunButton();
-    return;
-  }
-  for (const f of csvFiles) {
+  let kept = 0;
+  for (const [name, entry] of bySubdir) {
+    if (!entry.jpg || !entry.json) continue;
     try {
-      const text = await f.text();
-      const rows = parseCSV(text);
-      for (const row of rows) {
-        const fn = (row.filename || '').trim();
-        if (!fn) continue;
-        state.gt.set(fn, {
-          brand: row.brand || '',
-          vendor: row.vendor || '',
-          date: row.date || null,
-          amount: toNum(row.amount),
-          tax: toNum(row.tax),
-          subtotal: toNum(row.subtotal),
-          currency: row.currency || '',
-          quality: row.quality || '',
-          status: row.status || 'ok',
-        });
-      }
-      log(`  ${f.name}: ${rows.length} row(s).`);
+      const gt = JSON.parse(await entry.json.text());
+      state.entries.set(name, {
+        jpg: entry.jpg,
+        gt: {
+          brand: gt.brand || '',
+          vendor: gt.vendor || '',
+          date: gt.date || null,
+          amount: toNum(gt.amount),
+          tax: toNum(gt.tax),
+          subtotal: toNum(gt.subtotal),
+          currency: gt.currency || '',
+          quality: gt.quality || '',
+        },
+      });
+      kept++;
     } catch (err) {
-      log(`  ${f.name}: parse error — ${err.message}`);
+      // Malformed JSON — skip silently; too many to log individually.
     }
   }
-  log(`Ground truth: ${state.gt.size} record(s) loaded.`);
+  log(`Loaded ${kept} receipt(s) with processed.jpg + extracted.json.`);
   refreshRunButton();
 });
 
-function toNum(s) {
-  if (s == null || s === '') return null;
-  const n = parseFloat(s);
+function toNum(v) {
+  if (v == null || v === '') return null;
+  const n = typeof v === 'number' ? v : parseFloat(v);
   return Number.isFinite(n) ? n : null;
 }
 
 function refreshRunButton() {
-  runBtn.disabled = !(state.raw.size && state.gt.size);
-}
-
-// Minimal CSV parser — handles UTF-8 BOM and double-quoted fields with commas.
-function parseCSV(text) {
-  const stripped = text.replace(/^﻿/, '');
-  const lines = stripped.split(/\r?\n/).filter((l) => l.length > 0);
-  if (!lines.length) return [];
-  const headers = splitCsvLine(lines[0]);
-  const rows = [];
-  for (let i = 1; i < lines.length; i++) {
-    const cells = splitCsvLine(lines[i]);
-    const obj = {};
-    headers.forEach((h, idx) => obj[h] = cells[idx] ?? '');
-    rows.push(obj);
-  }
-  return rows;
-}
-
-function splitCsvLine(line) {
-  const out = [];
-  let cur = '';
-  let inQ = false;
-  for (let i = 0; i < line.length; i++) {
-    const c = line[i];
-    if (inQ) {
-      if (c === '"') {
-        if (line[i + 1] === '"') { cur += '"'; i++; }
-        else inQ = false;
-      } else cur += c;
-    } else if (c === ',') {
-      out.push(cur); cur = '';
-    } else if (c === '"' && cur === '') {
-      inQ = true;
-    } else {
-      cur += c;
-    }
-  }
-  out.push(cur);
-  return out;
+  runBtn.disabled = state.entries.size === 0;
 }
 
 // ── run loop ────────────────────────────────────────────────────────
@@ -160,11 +125,6 @@ async function run() {
   resetResults();
   const backendName = document.querySelector('input[name="backend"]:checked').value;
 
-  // ── pre-warm ──
-  // First-run loads total ~18-20 MB (OpenCV.js, Tesseract.js, eng+fra packs)
-  // and each step blocks the main thread during WASM compile. We do them
-  // up front with yieldToPaint() between so the user sees progress instead
-  // of a silent frozen tab.
   log(`Loading backend: ${backendName}…`);
   await yieldToPaint();
 
@@ -177,17 +137,6 @@ async function run() {
     return finish();
   }
 
-  log(`Loading OpenCV.js (~9 MB) — expect ~5-10 s on first run…`);
-  await yieldToPaint();
-  try {
-    await loadOpenCV();
-  } catch (err) {
-    log(`OpenCV failed to load: ${err.message}`);
-    return finish();
-  }
-  log(`OpenCV ready.${memSuffix()}`);
-  await yieldToPaint();
-
   if (backend.preload) {
     try {
       await backend.preload((msg) => log(msg));
@@ -199,49 +148,39 @@ async function run() {
   log(`${backendName} ready.${memSuffix()}`);
   await yieldToPaint();
 
-  // Work list: raw files that also have a ground-truth record, capped by limit.
-  const limit = parseInt(limitInput.value, 10) || 20;
-  const workList = [];
-  for (const [name, file] of state.raw) {
-    if (state.gt.has(name)) workList.push({ name, file });
-    if (workList.length >= limit) break;
-  }
+  const limit = parseInt(limitInput.value, 10) || 10;
+  const workList = [...state.entries.entries()].slice(0, limit).map(([name, data]) => ({ name, ...data }));
   state.stats.total = workList.length;
   updateStatsUI();
-  if (!workList.length) {
-    log(`No raw file matches a ground-truth row. Check folder pairing.`);
-    return finish();
-  }
-  log(`Processing ${workList.length} receipt(s)…`);
 
+  log(`Processing ${workList.length} receipt(s)…`);
   for (const item of workList) {
     if (state.cancel) { log('Cancelled.'); break; }
     const idx = state.stats.processed + 1;
     try {
       log(`[${idx}/${workList.length}] ${item.name} …`);
-      const gt = state.gt.get(item.name);
-      const res = await runPipeline(item.file, backend);
-      const cmp = compareFields(gt, res.fields);
-      appendRow(item, res, gt, cmp);
+      const res = await runPipeline(item.jpg, backend);
+      const cmp = compareFields(item.gt, res.fields);
+      appendRow(item, res, item.gt, cmp);
       updateStats(res, cmp);
       updateStatsUI();
       const t = res.timings;
-      log(`    total=${(t.total/1000).toFixed(1)}s  prep=${Math.round(t.prep)}  corners=${Math.round(t.corners)}  warp=${Math.round(t.warp)}  ocr=${(t.ocr/1000).toFixed(1)}s${memSuffix()}`);
+      log(`    total=${(t.total / 1000).toFixed(1)}s  prep=${Math.round(t.prep)}  ocr=${(t.ocr / 1000).toFixed(1)}s  conf=${(res.ocrConfidence * 100).toFixed(0)}%${memSuffix()}`);
     } catch (err) {
       console.error(err);
       log(`[${idx}/${workList.length}] ERROR ${item.name}: ${err.message}`);
     }
-    // Let the browser paint, GC, and check tab health between receipts.
+    // Yield so the browser can paint, GC, and check tab health.
     await new Promise((r) => setTimeout(r, 50));
   }
 
-  log(`Done.`);
+  log('Done.');
   finish();
 }
 
 function finish() {
   state.running = false;
-  runBtn.disabled = !(state.raw.size && state.gt.size);
+  runBtn.disabled = state.entries.size === 0;
   stopBtn.disabled = true;
 }
 
@@ -253,17 +192,9 @@ function resetResults() {
   updateStatsUI();
 }
 
-function memSuffix() {
-  // Chrome-only. Best-effort diagnostic so a leaking build is visible in the log.
-  const m = performance.memory;
-  if (!m) return '';
-  return `  heap=${Math.round(m.usedJSHeapSize / 1024 / 1024)}MB`;
-}
-
 function updateStats(res, cmp) {
   state.stats.processed++;
   state.stats.totalTime += res.timings.total;
-  if (res.cornersFound) state.stats.corners++;
   if (cmp.brand === 'match' || cmp.brand === 'partial') state.stats.brand++;
   if (cmp.date === 'match') state.stats.date++;
   if (cmp.amount === 'match') state.stats.amount++;
@@ -274,7 +205,6 @@ function updateStatsUI() {
   const s = state.stats;
   const pct = (a, b) => (b > 0 ? `${Math.round((100 * a) / b)}%` : '—');
   $('stat-processed').innerHTML = `${s.processed}<span class="stat-pct">/ ${s.total}</span>`;
-  $('stat-corners').innerHTML   = `${s.corners}<span class="stat-pct">${pct(s.corners, s.processed)}</span>`;
   $('stat-brand').innerHTML     = `${s.brand}<span class="stat-pct">${pct(s.brand, s.processed)}</span>`;
   $('stat-date').innerHTML      = `${s.date}<span class="stat-pct">${pct(s.date, s.processed)}</span>`;
   $('stat-amount').innerHTML    = `${s.amount}<span class="stat-pct">${pct(s.amount, s.processed)}</span>`;
@@ -295,10 +225,8 @@ function appendRow(item, res, gt, cmp) {
     <td class="num ${klass(cmp.amount)}">${fmtPair(fmtNum(gt.amount), fmtNum(res.fields.amount))}</td>
     <td class="num ${klass(cmp.tax)}">${fmtPair(fmtNum(gt.tax), fmtNum(res.fields.tax))}</td>
     <td class="num">${(res.timings.total / 1000).toFixed(1)}s</td>
-    <td class="notes">${res.cornersFound ? 'corners ok' : '<em class="placeholder">no corners</em>'}</td>
+    <td class="num">${Math.round(res.ocrConfidence * 100)}%</td>
   `;
-  // Render the thumb via an object URL on the pre-downscaled blob. Way less
-  // memory than a data URL of a multi-MB canvas.
   const thumbCell = tr.querySelector('.thumb');
   if (res.thumbBlob) {
     const url = URL.createObjectURL(res.thumbBlob);

@@ -28,7 +28,7 @@
     .stat-value { font: 20px/1 ui-monospace, monospace; color: #1b1a17; margin-top: 6px; font-variant-numeric: tabular-nums; }
     .stat-pct { font-size: 12px; color: #6a665c; margin-left: 8px; }
 
-    #log { background: #fbf8f1; border: 1px solid #e2dcca; border-radius: 4px; padding: 6px 12px; margin-bottom: 14px; font: 11px/1.5 ui-monospace, monospace; max-height: 90px; overflow: auto; white-space: pre-wrap; color: #3c3a34; }
+    #log { background: #fbf8f1; border: 1px solid #e2dcca; border-radius: 4px; padding: 6px 12px; margin-bottom: 14px; font: 11px/1.5 ui-monospace, monospace; max-height: 120px; overflow: auto; white-space: pre-wrap; color: #3c3a34; }
 
     .results { background: #fbf8f1; border: 1px solid #e2dcca; border-radius: 6px; overflow: auto; }
     table { width: 100%; border-collapse: collapse; font-size: 12px; }
@@ -48,28 +48,24 @@
 </head>
 <body>
   <h1>Local OCR PoC — comparison harness</h1>
-  <p class="sub">Runs OpenCV.js + Tesseract.js (or PaddleOCR web) over local receipts and diffs each extracted field against the OpenAI ground truth in <code>sample-data/processed/{ok,review}.csv</code>. Everything runs in the browser; nothing is uploaded.</p>
+  <p class="sub">Runs Tesseract.js (or PaddleOCR web) over the already-warped <code>processed.jpg</code> files in <code>sample-data/processed/</code> and diffs each extracted field against the OpenAI ground truth from <code>extracted.json</code> next to it. Everything runs in the browser; nothing is uploaded.</p>
 
   <section class="controls">
-    <label>Raw folder (sample-data/raw-all)
-      <input type="file" id="raw-input" webkitdirectory multiple />
-    </label>
-    <label>Ground truth folder (sample-data/processed)
-      <input type="file" id="gt-input" webkitdirectory multiple />
+    <label>Processed folder (sample-data/processed)
+      <input type="file" id="folder-input" webkitdirectory multiple />
     </label>
     <fieldset>
       <legend>OCR backend</legend>
       <label class="inline"><input type="radio" name="backend" value="tesseract" checked /> Tesseract.js</label>
       <label class="inline"><input type="radio" name="backend" value="paddle" /> PaddleOCR web</label>
     </fieldset>
-    <label class="inline">Limit <input type="number" id="limit-input" value="20" min="1" max="500" /></label>
+    <label class="inline">Limit <input type="number" id="limit-input" value="10" min="1" max="500" /></label>
     <button id="run-btn" disabled>Run</button>
     <button id="stop-btn" class="ghost" disabled>Stop</button>
   </section>
 
   <section class="stats">
     <div class="stat"><div class="stat-label">Processed</div><div class="stat-value" id="stat-processed">0<span class="stat-pct">/ 0</span></div></div>
-    <div class="stat"><div class="stat-label">Corners found</div><div class="stat-value" id="stat-corners">0<span class="stat-pct">—</span></div></div>
     <div class="stat"><div class="stat-label">Brand match</div><div class="stat-value" id="stat-brand">0<span class="stat-pct">—</span></div></div>
     <div class="stat"><div class="stat-label">Date exact</div><div class="stat-value" id="stat-date">0<span class="stat-pct">—</span></div></div>
     <div class="stat"><div class="stat-label">Amount ±1¢</div><div class="stat-value" id="stat-amount">0<span class="stat-pct">—</span></div></div>
@@ -77,21 +73,21 @@
     <div class="stat"><div class="stat-label">Avg time / receipt</div><div class="stat-value" id="stat-time">— s</div></div>
   </section>
 
-  <pre id="log">Pick the two folders above to begin.</pre>
+  <pre id="log">Pick the sample-data/processed folder to begin.</pre>
 
   <section class="results">
     <table>
       <thead>
         <tr>
           <th>#</th>
-          <th>File</th>
-          <th>Thumb (warped)</th>
+          <th>Receipt</th>
+          <th>Thumb</th>
           <th>Brand (GT → local)</th>
           <th>Date</th>
           <th>Amount</th>
           <th>Tax</th>
           <th>Time</th>
-          <th>Notes</th>
+          <th>OCR conf.</th>
         </tr>
       </thead>
       <tbody id="results-body"></tbody>
