@@ -30,6 +30,12 @@ async function ensureModule() {
   return modulePromise;
 }
 
+export async function preload(logFn) {
+  if (logFn) logFn('paddle: fetching module from esm.sh…');
+  await ensureModule();
+  if (logFn) logFn('paddle: ready.');
+}
+
 export async function recognize(canvas) {
   const mod = await ensureModule();
   // The recognize() API accepts HTMLCanvasElement / HTMLImageElement / ImageData.

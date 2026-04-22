@@ -1,7 +1,7 @@
 // Comparison harness orchestration: pick folders → parse CSVs → run pipeline
 // per receipt → diff each field against ground truth → update stats table.
 
-import { runPipeline } from './pipeline.js';
+import { runPipeline, loadOpenCV } from './pipeline.js';
 import { compareFields } from './fields.js';
 
 const state = {
@@ -29,6 +29,13 @@ function freshStats() {
 function log(msg) {
   const line = `${new Date().toLocaleTimeString()}  ${msg}`;
   logEl.textContent = line + '\n' + logEl.textContent;
+}
+
+// Force the browser to paint before the next blocking task. Two rAFs is a
+// reliable pattern for "my DOM change is visible before we lock up the thread."
+async function yieldToPaint() {
+  await new Promise((r) => requestAnimationFrame(() => r()));
+  await new Promise((r) => requestAnimationFrame(() => r()));
 }
 
 // ── file pickers ────────────────────────────────────────────────────
@@ -145,7 +152,14 @@ async function run() {
 
   resetResults();
   const backendName = document.querySelector('input[name="backend"]:checked').value;
+
+  // ── pre-warm ──
+  // First-run loads total ~18-20 MB (OpenCV.js, Tesseract.js, eng+fra packs)
+  // and each step blocks the main thread during WASM compile. We do them
+  // up front with yieldToPaint() between so the user sees progress instead
+  // of a silent frozen tab.
   log(`Loading backend: ${backendName}…`);
+  await yieldToPaint();
 
   let backend;
   try {
@@ -155,6 +169,28 @@ async function run() {
     log(`Backend failed to load: ${err.message}`);
     return finish();
   }
+
+  log(`Loading OpenCV.js (~9 MB) — expect ~5-10 s on first run…`);
+  await yieldToPaint();
+  try {
+    await loadOpenCV();
+  } catch (err) {
+    log(`OpenCV failed to load: ${err.message}`);
+    return finish();
+  }
+  log(`OpenCV ready.${memSuffix()}`);
+  await yieldToPaint();
+
+  if (backend.preload) {
+    try {
+      await backend.preload((msg) => log(msg));
+    } catch (err) {
+      log(`Backend warm-up failed: ${err.message}`);
+      return finish();
+    }
+  }
+  log(`${backendName} ready.${memSuffix()}`);
+  await yieldToPaint();
 
   // Work list: raw files that also have a ground-truth record, capped by limit.
   const limit = parseInt(limitInput.value, 10) || 20;

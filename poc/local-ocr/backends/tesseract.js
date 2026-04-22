@@ -18,14 +18,38 @@ function ensureScript() {
   return scriptPromise;
 }
 
+let onLog = null;
+function logStep(msg) { if (onLog) onLog(msg); }
+
 async function getWorker() {
   if (workerPromise) return workerPromise;
   workerPromise = (async () => {
+    logStep('tesseract: fetching tesseract.js (~2 MB)…');
     await ensureScript();
-    // eng + fra gives us English receipts + Québec/French-Canadian receipts.
-    return window.Tesseract.createWorker(['eng', 'fra']);
+    logStep('tesseract: creating worker (downloads eng + fra language data, ~7 MB)…');
+    // Route Tesseract's own progress messages to the UI so the user sees stages.
+    return window.Tesseract.createWorker(['eng', 'fra'], 1, {
+      logger: (m) => {
+        if (!m) return;
+        if (typeof m.progress === 'number' && m.status) {
+          logStep(`tesseract: ${m.status} ${Math.round(m.progress * 100)}%`);
+        }
+      },
+    });
   })();
   return workerPromise;
+}
+
+// Invoked by the harness before the iteration loop so the heavy downloads
+// and worker init happen up front, with visible progress, instead of
+// stalling the first receipt.
+export async function preload(logFn) {
+  onLog = logFn || null;
+  try {
+    await getWorker();
+  } finally {
+    onLog = null;
+  }
 }
 
 export async function recognize(canvas) {
