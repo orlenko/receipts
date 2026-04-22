@@ -7,3 +7,6 @@ dist/
 # Local scratch
 tmp-data/
 *.local.*
+
+# Real receipts used for local PoC / comparison work — never commit.
+sample-data/
