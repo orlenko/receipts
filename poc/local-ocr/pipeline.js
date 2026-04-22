@@ -29,7 +29,7 @@ export async function loadBitmap(file) {
   return createImageBitmap(file, { imageOrientation: 'from-image' });
 }
 
-export function bitmapToCanvas(bitmap, maxEdge = 1600) {
+export function bitmapToCanvas(bitmap, maxEdge = 1200) {
   const scale = Math.min(1, maxEdge / Math.max(bitmap.width, bitmap.height));
   const w = Math.max(1, Math.round(bitmap.width * scale));
   const h = Math.max(1, Math.round(bitmap.height * scale));
@@ -37,6 +37,27 @@ export function bitmapToCanvas(bitmap, maxEdge = 1600) {
   canvas.width = w; canvas.height = h;
   canvas.getContext('2d').drawImage(bitmap, 0, 0, w, h);
   return canvas;
+}
+
+// Drop a canvas's backing store. Browsers don't GC the pixel buffer while the
+// element still has non-zero dimensions, so we set it to 0×0 once we're done.
+function clearCanvas(c) {
+  if (!c) return;
+  c.width = 0;
+  c.height = 0;
+}
+
+// Render a tiny thumb as a JPEG Blob. Blobs are cheaper to hold in the DOM
+// than multi-MB base64 data URLs and are released when URL.revokeObjectURL
+// is called on the object URL that references them.
+async function toThumbBlob(canvas, maxEdge = 96) {
+  const scale = Math.min(1, maxEdge / Math.max(canvas.width, canvas.height));
+  const w = Math.max(1, Math.round(canvas.width * scale));
+  const h = Math.max(1, Math.round(canvas.height * scale));
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  c.getContext('2d').drawImage(canvas, 0, 0, w, h);
+  return new Promise((resolve) => c.toBlob(resolve, 'image/jpeg', 0.75));
 }
 
 // ── corner detection ────────────────────────────────────────────────
@@ -144,16 +165,24 @@ export async function runPipeline(file, backend) {
   const t0 = performance.now();
   const bitmap = await loadBitmap(file);
   const rawCanvas = bitmapToCanvas(bitmap);
+  bitmap.close();                                         // free decoded pixel memory
   const t1 = performance.now();
 
   const corners = await findReceiptCorners(rawCanvas);
   const t2 = performance.now();
 
   const processed = corners ? await warpToUpright(rawCanvas, corners) : rawCanvas;
+  // If the warp happened, the raw canvas is orphaned; release its backing store.
+  if (processed !== rawCanvas) clearCanvas(rawCanvas);
   const t3 = performance.now();
 
   const ocr = await backend.recognize(processed);
   const t4 = performance.now();
+
+  // Produce a small thumb Blob for the UI, then release the big canvas.
+  const thumbBlob = await toThumbBlob(processed, 96);
+  clearCanvas(processed);
+  const t5 = performance.now();
 
   const fields = extractFields(ocr.text);
 
@@ -163,13 +192,14 @@ export async function runPipeline(file, backend) {
     fields,
     ocrText: ocr.text,
     ocrConfidence: ocr.confidence,
-    processedCanvas: processed,
+    thumbBlob,
     timings: {
       prep: t1 - t0,
       corners: t2 - t1,
       warp: t3 - t2,
       ocr: t4 - t3,
-      total: t4 - t0,
+      thumb: t5 - t4,
+      total: t5 - t0,
     },
   };
 }

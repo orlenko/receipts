@@ -10,6 +10,7 @@ const state = {
   running: false,
   cancel: false,
   stats: freshStats(),
+  thumbUrls: [],        // object URLs for thumb blobs; revoked on reset
 };
 
 const $ = (id) => document.getElementById(id);
@@ -172,17 +173,23 @@ async function run() {
 
   for (const item of workList) {
     if (state.cancel) { log('Cancelled.'); break; }
+    const idx = state.stats.processed + 1;
     try {
+      log(`[${idx}/${workList.length}] ${item.name} …`);
       const gt = state.gt.get(item.name);
       const res = await runPipeline(item.file, backend);
       const cmp = compareFields(gt, res.fields);
       appendRow(item, res, gt, cmp);
       updateStats(res, cmp);
       updateStatsUI();
+      const t = res.timings;
+      log(`    total=${(t.total/1000).toFixed(1)}s  prep=${Math.round(t.prep)}  corners=${Math.round(t.corners)}  warp=${Math.round(t.warp)}  ocr=${(t.ocr/1000).toFixed(1)}s${memSuffix()}`);
     } catch (err) {
       console.error(err);
-      log(`ERROR  ${item.name}: ${err.message}`);
+      log(`[${idx}/${workList.length}] ERROR ${item.name}: ${err.message}`);
     }
+    // Let the browser paint, GC, and check tab health between receipts.
+    await new Promise((r) => setTimeout(r, 50));
   }
 
   log(`Done.`);
@@ -197,8 +204,17 @@ function finish() {
 
 function resetResults() {
   resultsBody.innerHTML = '';
+  for (const url of state.thumbUrls) URL.revokeObjectURL(url);
+  state.thumbUrls = [];
   state.stats = freshStats();
   updateStatsUI();
+}
+
+function memSuffix() {
+  // Chrome-only. Best-effort diagnostic so a leaking build is visible in the log.
+  const m = performance.memory;
+  if (!m) return '';
+  return `  heap=${Math.round(m.usedJSHeapSize / 1024 / 1024)}MB`;
 }
 
 function updateStats(res, cmp) {
@@ -238,13 +254,16 @@ function appendRow(item, res, gt, cmp) {
     <td class="num">${(res.timings.total / 1000).toFixed(1)}s</td>
     <td class="notes">${res.cornersFound ? 'corners ok' : '<em class="placeholder">no corners</em>'}</td>
   `;
-  // Render processed canvas as a thumb.
+  // Render the thumb via an object URL on the pre-downscaled blob. Way less
+  // memory than a data URL of a multi-MB canvas.
   const thumbCell = tr.querySelector('.thumb');
-  try {
+  if (res.thumbBlob) {
+    const url = URL.createObjectURL(res.thumbBlob);
+    state.thumbUrls.push(url);
     const thumb = document.createElement('img');
-    thumb.src = res.processedCanvas.toDataURL('image/jpeg', 0.6);
+    thumb.src = url;
     thumbCell.appendChild(thumb);
-  } catch { /* toDataURL can fail on big canvases; skip quietly */ }
+  }
   resultsBody.appendChild(tr);
 }
 
