@@ -8,10 +8,6 @@
 
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
 
-  <!-- Open Graph / Twitter card. og-cover.svg is a 1200x630 SVG with the
-       headline + CTA baked in; if X/Twitter ever start refusing SVG OG
-       images on this account, render it once to PNG (Inkscape, rsvg-convert,
-       or any browser screenshot) and switch the path to /og-cover.png. -->
   <meta property="og:type" content="website" />
   <meta property="og:url" content="https://receipts.clickable.one/" />
   <meta property="og:title" content="receipts — paper receipts to scans + spreadsheet" />
@@ -30,469 +26,453 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap" media="print" onload="this.media='all'" />
   <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap" /></noscript>
 
-  <link rel="stylesheet" href="styles.css?v=8" />
+  <link rel="stylesheet" href="styles.css?v=15" />
 </head>
-<body>
-  <a class="skip-link" href="#step-key">Skip to app</a>
+<body data-app-state="first">
+  <a class="skip-link" href="#drop-zone">Skip to app</a>
 
   <!-- ═══════════════════════════════════════════════════════════════════
-       HERO
+       TOP BAR (always visible)
        ═══════════════════════════════════════════════════════════════════ -->
-  <header class="hero" role="banner">
-    <nav class="top-nav" aria-label="Primary">
+  <header class="app-bar" role="banner">
+    <div class="app-bar-inner">
       <div class="wordmark" aria-label="receipts">
         <span class="wordmark-dot" aria-hidden="true"></span>
         receipts
       </div>
-      <ul class="top-nav-links">
-        <li><a href="#how-it-works">How it works</a></li>
-        <li><a href="#privacy">Privacy</a></li>
-        <li><a href="#faq">FAQ</a></li>
-        <li><a href="https://github.com/orlenko/receipts" target="_blank" rel="noopener" class="gh-link">
-          <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
-          source
-        </a></li>
-      </ul>
-    </nav>
 
-    <div class="hero-inner">
-      <div class="hero-copy">
-        <div class="eyebrow">
-          <span class="dot-live" aria-hidden="true"></span>
-          A small thing I made for my own tax prep
+      <!-- Connection chip: rendered by app.js when connected. Click to re-open connect drawer. -->
+      <button id="conn-chip" class="conn-chip" type="button" hidden aria-expanded="false" aria-controls="connect-drawer">
+        <span class="conn-chip-dot" aria-hidden="true"></span>
+        <span class="conn-chip-label"></span>
+        <span class="conn-chip-chev" aria-hidden="true">▾</span>
+      </button>
+
+      <!-- "?" popover menu: About / How it works / Privacy / FAQ / Source -->
+      <div class="info-menu">
+        <button id="info-btn" class="info-btn" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="info-panel" title="About this tool">
+          <span aria-hidden="true">?</span>
+          <span class="visually-hidden">About this tool</span>
+        </button>
+        <div id="info-panel" class="info-panel" role="menu" hidden>
+          <a role="menuitem" href="#about">What is this?</a>
+          <a role="menuitem" href="#how">How it works</a>
+          <a role="menuitem" href="#privacy">Privacy</a>
+          <a role="menuitem" href="#faq">FAQ</a>
+          <hr />
+          <a role="menuitem" href="https://github.com/orlenko/receipts" target="_blank" rel="noopener">Source on GitHub ↗</a>
         </div>
-        <h1>
-          Photos of paper receipts, in. <em>Upright scans and a tidy spreadsheet,</em> out.
-        </h1>
-        <p class="lede">
-          I built this to speed up my own bookkeeping and figured I'd leave it
-          online in case it's useful to you too. Drag in JPGs, get cropped
-          images plus structured fields &mdash; vendor, amount, tax, date
-          &mdash; ready to drop into a folder.
-        </p>
-
-        <p class="lede-note">
-          This web page <em>is</em> the whole app. No server, no signup, no
-          login, nothing to pay me. You bring your own
-          <a href="#how-to-get-a-key">OpenAI API key</a>; your images and key
-          stay in your browser and talk to OpenAI directly.
-        </p>
-
-        <ul class="hero-pills" aria-label="What you get">
-          <li><span class="pill-glyph" aria-hidden="true">↻</span> Auto-rotated &amp; cropped</li>
-          <li><span class="pill-glyph" aria-hidden="true">⌖</span> Structured JSON</li>
-          <li><span class="pill-glyph" aria-hidden="true">☷</span> CSV spreadsheet</li>
-          <li><span class="pill-glyph" aria-hidden="true">∅</span> No signup</li>
-        </ul>
-
-        <div class="hero-cta">
-          <a class="btn btn-primary" href="#step-key">Try it &mdash; bring your own key</a>
-          <a class="btn btn-ghost" href="#privacy">What leaves my browser?</a>
-        </div>
-
-        <p class="hero-foot">
-          Free tool, MIT source on
-          <a href="https://github.com/orlenko/receipts" target="_blank" rel="noopener">GitHub</a>.
-          Not affiliated with OpenAI.
-        </p>
       </div>
-
-      <!-- Before → After hero visual: crumpled photo in the wild → clean scan + fields -->
-      <aside class="hero-visual" aria-label="Before and after: crumpled receipt photo becomes an upright scan with extracted fields">
-        <div class="hv-before" aria-hidden="true">
-          <span class="hv-label">PHOTO IN</span>
-          <div class="hv-desk">
-            <!-- "desk" background scribble -->
-            <div class="hv-desk-grain"></div>
-            <!-- crumpled, rotated receipt photo -->
-            <div class="hv-photo">
-              <div class="hv-photo-inner">
-                <div class="hv-receipt-raw">
-                  <span class="hv-rr-brand">RONA&nbsp;#605</span>
-                  <span class="hv-rr-line w80"></span>
-                  <span class="hv-rr-line w60"></span>
-                  <span class="hv-rr-line w70"></span>
-                  <span class="hv-rr-line w50"></span>
-                  <span class="hv-rr-sep"></span>
-                  <span class="hv-rr-line w40"></span>
-                  <span class="hv-rr-line w65"></span>
-                  <span class="hv-rr-total">TOTAL $34.71</span>
-                  <span class="hv-rr-line w30"></span>
-                </div>
-              </div>
-            </div>
-            <!-- coffee-ring + corner -->
-            <div class="hv-ring"></div>
-          </div>
-        </div>
-
-        <div class="hv-arrow" aria-hidden="true">
-          <svg viewBox="0 0 60 24" preserveAspectRatio="none">
-            <path d="M2 12 H50 M42 4 L54 12 L42 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="square" stroke-linejoin="miter"/>
-          </svg>
-          <span class="hv-arrow-label">OCR</span>
-        </div>
-
-        <div class="hv-after" aria-hidden="true">
-          <span class="hv-label hv-label-after">SCAN &amp; FIELDS OUT</span>
-          <div class="hv-stack">
-            <div class="hv-scan">
-              <div class="hv-scan-inner">
-                <div class="hv-sc-brand">RONA #605</div>
-                <div class="hv-sc-addr">Coquitlam, BC</div>
-                <div class="hv-sc-line w90"></div>
-                <div class="hv-sc-line w75"></div>
-                <div class="hv-sc-line w60"></div>
-                <div class="hv-sc-sep"></div>
-                <div class="hv-sc-row"><span>SUBTOTAL</span><span>30.99</span></div>
-                <div class="hv-sc-row"><span>GST 5%</span><span>1.55</span></div>
-                <div class="hv-sc-row"><span>PST 7%</span><span>2.17</span></div>
-                <div class="hv-sc-total"><span>TOTAL</span><span>34.71</span></div>
-                <div class="hv-sc-foot">2026-03-14 · CAD</div>
-              </div>
-            </div>
-            <dl class="hv-fields">
-              <div><dt>brand</dt><dd>Rona&nbsp;#605</dd></div>
-              <div><dt>date</dt><dd>2026-03-14</dd></div>
-              <div><dt>tax</dt><dd>3.72</dd></div>
-              <div><dt>amount</dt><dd class="hv-f-total">34.71</dd></div>
-            </dl>
-            <span class="hv-badge"><span class="hv-badge-dot"></span>ok · rona--2026-03-14--34.71.jpg</span>
-          </div>
-        </div>
-      </aside>
     </div>
-
-    <!-- perforated separator -->
-    <div class="perforated" aria-hidden="true"></div>
   </header>
 
   <!-- ═══════════════════════════════════════════════════════════════════
-       APP
+       APP — the tool. Order: connect → drop → work.
        ═══════════════════════════════════════════════════════════════════ -->
-  <main id="how-it-works">
-    <!-- STEP 1 — KEY -->
-    <section id="step-key" class="step" aria-labelledby="step-key-title">
-      <div class="step-rail">
-        <div class="step-num">01</div>
-        <div class="step-rail-line" aria-hidden="true"></div>
-      </div>
-      <div class="step-body">
-        <header class="step-head">
-          <h2 id="step-key-title">Paste your OpenAI key</h2>
-          <p class="step-sub">
-            Stored in this browser only (<code>localStorage</code>). Sent straight to
-            <code>api.openai.com</code> as an <code>Authorization</code> header — never
-            to us, because there's no “us.”
-            <a href="#how-to-get-a-key">Need a key?</a>
-          </p>
-        </header>
+  <main class="app">
 
-        <div class="card">
-          <div class="key-row">
-            <label for="api-key" class="visually-hidden">OpenAI API key</label>
-            <input type="password" id="api-key" placeholder="sk-..." autocomplete="off" spellcheck="false" aria-describedby="key-status" />
-            <button id="save-key" class="btn btn-primary">Save key</button>
-            <button id="clear-key" class="btn btn-ghost" type="button">Clear</button>
+    <!-- ───── CONNECT ─────
+         First-time: full card, expanded.
+         Connected:  collapses to the chip in the top bar; the drawer re-opens on chip click.
+    -->
+    <section id="connect-drawer" class="connect" aria-labelledby="connect-title">
+      <div class="connect-head">
+        <h2 id="connect-title">Connect to OpenAI</h2>
+        <p class="connect-sub">
+          Two paths, pick one. Your credential is stored only in this browser and
+          sent only to the API host listed on the option you choose.
+          <a href="#about" class="info-link">What is this?</a>
+        </p>
+      </div>
+
+      <div class="connect-grid">
+        <!-- Option A: paste your own OpenAI key -->
+        <div class="auth-opt" data-provider="openai">
+          <div class="auth-opt-head">
+            <h3 class="auth-opt-title">Paste OpenAI API key</h3>
+            <span class="auth-opt-tag">Cheapest · batch mode</span>
           </div>
-          <div id="key-status" class="key-status" role="status" aria-live="polite"></div>
-        </div>
-      </div>
-    </section>
-
-    <!-- BATCHES — only shown if there are persisted batches -->
-    <section id="batches-section" class="step" aria-labelledby="batches-title" hidden>
-      <div class="step-rail">
-        <div class="step-num" aria-hidden="true">↻</div>
-        <div class="step-rail-line" aria-hidden="true"></div>
-      </div>
-      <div class="step-body">
-        <header class="step-head">
-          <h2 id="batches-title">Your batches</h2>
-          <p class="step-sub">
-            Submitted to OpenAI's Batch API (usually done in a few minutes, and
-            cheaper than the fast mode). They're saved here in your browser
-            &mdash; close the tab, come back whenever. The batch IDs are also
-            valid on <code>platform.openai.com</code> for ~30 days (their
-            retention), so your data is recoverable even if your browser data
-            gets wiped.
+          <p class="auth-opt-sub">
+            Goes straight to <code>api.openai.com</code> — no third party in the loop.
+            <a href="#how-to-get-a-key">How do I get a key?</a>
           </p>
-        </header>
-
-        <div class="card">
-          <ul id="batch-list" class="batch-list" aria-live="polite"></ul>
+          <div class="auth-form">
+            <div class="key-row">
+              <label for="api-key" class="visually-hidden">OpenAI API key</label>
+              <input type="password" id="api-key" placeholder="sk-..." autocomplete="off" spellcheck="false" />
+              <button id="save-key" class="btn btn-primary">Save key</button>
+            </div>
+          </div>
+          <div class="auth-active" hidden>
+            <p class="auth-active-msg" role="status" aria-live="polite">
+              <span class="auth-check" aria-hidden="true">✓</span>
+              OpenAI key saved (ends in <code class="key-suffix"></code>).
+            </p>
+            <button id="clear-key" class="btn btn-ghost btn-sm" type="button">Clear</button>
+          </div>
         </div>
-      </div>
-    </section>
 
-    <!-- STEP 2 — DROP -->
-    <section id="step-drop" class="step" aria-labelledby="step-drop-title">
-      <div class="step-rail">
-        <div class="step-num">02</div>
-        <div class="step-rail-line" aria-hidden="true"></div>
-      </div>
-      <div class="step-body">
-        <header class="step-head">
-          <h2 id="step-drop-title">Drop in your receipts</h2>
-          <p class="step-sub">
-            JPG or PNG, one at a time or a stack. Images are downscaled to 1568px
-            on the long edge before sending. HEIC isn't supported yet — convert to JPG first.
+        <!-- Option B: OpenRouter PKCE -->
+        <div class="auth-opt" data-provider="openrouter">
+          <div class="auth-opt-head">
+            <h3 class="auth-opt-title">Log in to OpenRouter</h3>
+            <span class="auth-opt-tag">One click · no paste</span>
+          </div>
+          <p class="auth-opt-sub">
+            Images pass through <code>openrouter.ai</code> on their way to OpenAI.
+            ~5% more per receipt; batch mode unavailable.
           </p>
-        </header>
-
-        <div id="drop-zone" tabindex="0" role="button" aria-label="Drop receipt photos here, or activate to choose files">
-          <div class="drop-inner">
-            <div class="drop-art" aria-hidden="true">
-              <div class="drop-receipt drop-receipt-1"></div>
-              <div class="drop-receipt drop-receipt-2"></div>
-              <div class="drop-receipt drop-receipt-3"></div>
-            </div>
-            <div class="drop-copy">
-              <p class="drop-head">Drag photos here</p>
-              <p class="drop-sub">JPG or PNG · any orientation · up to a few MB each</p>
-              <label class="btn btn-primary file-pick">
-                Or choose files
-                <input type="file" id="file-input" multiple accept="image/jpeg,image/png" hidden />
-              </label>
-            </div>
+          <div class="auth-form">
+            <button id="or-login" class="btn btn-primary" type="button">Sign in with OpenRouter</button>
+          </div>
+          <div class="auth-active" hidden>
+            <p class="auth-active-msg" role="status" aria-live="polite">
+              <span class="auth-check" aria-hidden="true">✓</span>
+              Signed in (ends in <code class="key-suffix"></code>).
+            </p>
+            <button id="or-signout" class="btn btn-ghost btn-sm" type="button">Sign out</button>
           </div>
         </div>
       </div>
     </section>
 
-    <!-- STEP 3 — QUEUE -->
-    <section id="queue-section" class="step" aria-labelledby="step-queue-title" hidden>
-      <div class="step-rail">
-        <div class="step-num">03</div>
-        <div class="step-rail-line" aria-hidden="true"></div>
+    <!-- ───── DROP ZONE ───── -->
+    <section class="drop" aria-labelledby="drop-title">
+      <h2 id="drop-title" class="visually-hidden">Drop receipts</h2>
+      <div id="drop-zone" tabindex="0" role="button" aria-label="Drop receipt photos here, or activate to choose files">
+        <div class="drop-inner">
+          <div class="drop-art" aria-hidden="true">
+            <div class="drop-receipt drop-receipt-1"></div>
+            <div class="drop-receipt drop-receipt-2"></div>
+            <div class="drop-receipt drop-receipt-3"></div>
+          </div>
+          <div class="drop-copy">
+            <p class="drop-head">Drop photos of receipts</p>
+            <p class="drop-sub">JPG or PNG · any orientation · downscaled to 1568px before sending</p>
+            <label class="btn btn-primary file-pick">
+              Choose files
+              <input type="file" id="file-input" multiple accept="image/jpeg,image/png" hidden />
+            </label>
+          </div>
+        </div>
       </div>
-      <div class="step-body">
-        <header class="step-head">
-          <h2 id="step-queue-title">Process the queue</h2>
-          <p class="step-sub">
-            Each file hits OpenAI's vision endpoint. Status flips from
-            <em>queued</em> → <em>processing</em> → <em>ok</em> / <em>review</em>.
-            The whole bill lands on <em>your</em> OpenAI account.
-          </p>
-        </header>
+    </section>
 
-        <div class="card queue-card">
-          <div class="mode-switch" role="tablist" aria-label="Choose processing mode">
+    <!-- ───── MODE / CONTROLS / QUEUE+RESULTS (unified) ───── -->
+    <section id="work" class="work" aria-labelledby="work-title" hidden>
+      <h2 id="work-title" class="visually-hidden">Receipts in progress</h2>
+
+      <!-- Mode + controls bar -->
+      <div class="work-bar">
+        <div class="work-bar-left">
+          <div id="mode-switch" class="mode-switch" role="tablist" aria-label="Choose processing mode">
             <button id="mode-live" type="button" role="tab" class="mode-opt is-on" aria-selected="true">
               <span class="mode-name">Fast</span>
-              <span class="mode-meta">instant &middot; watch each one come back</span>
+              <span class="mode-meta">one by one</span>
             </button>
             <button id="mode-batch" type="button" role="tab" class="mode-opt" aria-selected="false">
               <span class="mode-name">Batch</span>
-              <span class="mode-meta">cheaper via OpenAI's Batch API &middot; usually done in minutes</span>
+              <span class="mode-meta">cheaper, ~minutes</span>
             </button>
           </div>
-          <p id="mode-note" class="mode-note"></p>
+          <div id="queue-summary" class="queue-summary" aria-live="polite"></div>
+        </div>
+        <div class="work-bar-right">
+          <button id="download-all-btn" class="btn btn-primary" type="button" hidden>
+            <span aria-hidden="true">⤓</span> Download everything
+          </button>
+          <button id="run-btn" class="btn btn-primary" type="button">Process now</button>
+          <button id="clear-queue-btn" class="btn btn-ghost btn-sm" type="button">Clear</button>
+        </div>
+      </div>
+      <p id="mode-note" class="mode-note" hidden></p>
 
-          <div class="queue-top">
-            <div id="queue-summary" class="queue-summary"></div>
-            <div class="controls">
-              <button id="run-btn" class="btn btn-primary">Process now</button>
-              <button id="clear-queue-btn" class="btn btn-ghost" type="button">Clear queue</button>
+      <!-- Unified grid: rows start minimal (queued), grow richer as they process. -->
+      <ol id="rows" class="rows" aria-live="polite"></ol>
+    </section>
+
+    <!-- ───── BATCHES (only appears when a batch is persisted) ───── -->
+    <section id="batches-section" class="batches" aria-labelledby="batches-title" hidden>
+      <header class="batches-head">
+        <h2 id="batches-title">Batches in flight</h2>
+        <p class="batches-sub">
+          Submitted to OpenAI's Batch API. Survives a tab close — come back any
+          time. Valid on <code>platform.openai.com</code> for ~30 days.
+        </p>
+      </header>
+      <ul id="batch-list" class="batch-list"></ul>
+    </section>
+
+    <!-- ───── FIRST-VISIT EXPLAINER ─────
+         Only shown when body[data-app-state="first"]. CSS hides it otherwise.
+         Concise: one paragraph + the before/after visual + 3 pills.
+    -->
+    <section id="about" class="about first-only" aria-labelledby="about-title">
+      <div class="about-grid">
+        <div class="about-copy">
+          <p class="eyebrow">
+            <span class="dot-live" aria-hidden="true"></span>
+            A small thing I made for my own tax prep
+          </p>
+          <h2 id="about-title">Photos of paper receipts, in. <em>Scans and a spreadsheet, out.</em></h2>
+          <p class="about-lede">
+            Drag in JPGs, get cropped images plus structured fields — vendor,
+            amount, tax, date — ready to drop into a folder.
+          </p>
+          <p class="about-note">
+            This web page <em>is</em> the whole app. No server, no signup, no
+            login, nothing to pay me. You bring your own OpenAI API key; your
+            images and key stay in your browser.
+          </p>
+          <ul class="about-pills">
+            <li><span aria-hidden="true">↻</span> Auto-rotated &amp; cropped</li>
+            <li><span aria-hidden="true">⌖</span> Structured JSON &amp; CSV</li>
+            <li><span aria-hidden="true">∅</span> No signup · MIT</li>
+          </ul>
+        </div>
+
+        <!-- Before → After compact visual -->
+        <aside class="hero-visual" aria-label="Before and after: crumpled receipt photo becomes an upright scan with extracted fields">
+          <div class="hv-before" aria-hidden="true">
+            <span class="hv-label">PHOTO IN</span>
+            <div class="hv-desk">
+              <div class="hv-desk-grain"></div>
+              <div class="hv-photo">
+                <div class="hv-photo-inner">
+                  <div class="hv-receipt-raw">
+                    <span class="hv-rr-brand">RONA&nbsp;#605</span>
+                    <span class="hv-rr-line w80"></span>
+                    <span class="hv-rr-line w60"></span>
+                    <span class="hv-rr-line w70"></span>
+                    <span class="hv-rr-line w50"></span>
+                    <span class="hv-rr-sep"></span>
+                    <span class="hv-rr-line w40"></span>
+                    <span class="hv-rr-line w65"></span>
+                    <span class="hv-rr-total">TOTAL $34.71</span>
+                    <span class="hv-rr-line w30"></span>
+                  </div>
+                </div>
+              </div>
+              <div class="hv-ring"></div>
             </div>
           </div>
-          <ol id="queue-list" aria-live="polite"></ol>
-        </div>
+
+          <div class="hv-arrow" aria-hidden="true">
+            <svg viewBox="0 0 60 24" preserveAspectRatio="none">
+              <path d="M2 12 H50 M42 4 L54 12 L42 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="square" stroke-linejoin="miter"/>
+            </svg>
+            <span class="hv-arrow-label">OCR</span>
+          </div>
+
+          <div class="hv-after" aria-hidden="true">
+            <span class="hv-label hv-label-after">SCAN &amp; FIELDS OUT</span>
+            <div class="hv-stack">
+              <div class="hv-scan">
+                <div class="hv-scan-inner">
+                  <div class="hv-sc-brand">RONA #605</div>
+                  <div class="hv-sc-addr">Coquitlam, BC</div>
+                  <div class="hv-sc-line w90"></div>
+                  <div class="hv-sc-line w75"></div>
+                  <div class="hv-sc-line w60"></div>
+                  <div class="hv-sc-sep"></div>
+                  <div class="hv-sc-row"><span>SUBTOTAL</span><span>30.99</span></div>
+                  <div class="hv-sc-row"><span>GST 5%</span><span>1.55</span></div>
+                  <div class="hv-sc-row"><span>PST 7%</span><span>2.17</span></div>
+                  <div class="hv-sc-total"><span>TOTAL</span><span>34.71</span></div>
+                  <div class="hv-sc-foot">2026-03-14 · CAD</div>
+                </div>
+              </div>
+              <dl class="hv-fields">
+                <div><dt>brand</dt><dd>Rona&nbsp;#605</dd></div>
+                <div><dt>date</dt><dd>2026-03-14</dd></div>
+                <div><dt>tax</dt><dd>3.72</dd></div>
+                <div><dt>amount</dt><dd class="hv-f-total">34.71</dd></div>
+              </dl>
+              <span class="hv-badge"><span class="hv-badge-dot"></span>ok · rona--2026-03-14--34.71.jpg</span>
+            </div>
+          </div>
+        </aside>
       </div>
     </section>
 
-    <!-- STEP 4 — RESULTS -->
-    <section id="results-section" class="step step-results" aria-labelledby="step-results-title" hidden>
-      <div class="step-rail">
-        <div class="step-num">04</div>
-      </div>
-      <div class="step-body">
-        <header class="step-head">
-          <h2 id="step-results-title">Your scans</h2>
-          <p class="step-sub">
-            Filenames are slugged <code>brand--YYYY-MM-DD--amount</code> so they
-            sort cleanly in a folder. Rows marked <em>review</em> had missing or
-            ambiguous fields — double-check those. Export a spreadsheet for
-            bookkeeping, or grab everything in one ZIP.
-          </p>
-        </header>
-
-        <div class="results-top">
-          <button id="download-all-btn" class="btn btn-primary">
-            <span aria-hidden="true">⤓</span> Download all as ZIP
-          </button>
-          <button id="download-csv-btn" class="btn btn-ghost" type="button">
-            <span aria-hidden="true">☷</span> Export spreadsheet (CSV)
-          </button>
+    <!-- ───── ON-DEMAND: HOW / PRIVACY / FAQ ─────
+         Reached via the ? menu. Kept on the page (anchor-linkable, bookmarkable),
+         but visually subdued so they don't fight the tool for attention.
+    -->
+    <section id="how" class="disclosure" aria-labelledby="how-title">
+      <details>
+        <summary><h2 id="how-title">How it works</h2></summary>
+        <div class="disclosure-body">
+          <ol class="how-steps">
+            <li><strong>Drop photos.</strong> JPG or PNG, one or many. They stay in your browser.</li>
+            <li><strong>Downscale.</strong> Each image is resized to 1568px on the long edge, locally.</li>
+            <li><strong>Send to OpenAI.</strong> The downscaled JPEG + your key go to <code>api.openai.com</code> (or <code>openrouter.ai</code> if you're on that path). Nowhere else.</li>
+            <li><strong>Parse.</strong> The structured JSON response is used to crop and warp the image upright — in your browser.</li>
+            <li><strong>Download.</strong> One ZIP with processed JPGs, a CSV, and JSON side-by-side.</li>
+          </ol>
         </div>
-        <div id="results-list"></div>
-      </div>
+      </details>
     </section>
 
-    <!-- ══════════ PRIVACY DETAIL ══════════ -->
-    <section id="privacy" class="privacy" aria-labelledby="privacy-title">
-      <div class="privacy-grid">
-        <div class="privacy-copy">
-          <p class="eyebrow eyebrow-dark"><span class="dot-live" aria-hidden="true"></span> PRIVACY, IN&nbsp;PLAIN&nbsp;TERMS</p>
-          <h2 id="privacy-title">What leaves your browser, and what doesn't.</h2>
+    <section id="privacy" class="disclosure" aria-labelledby="privacy-title">
+      <details>
+        <summary><h2 id="privacy-title">Privacy</h2></summary>
+        <div class="disclosure-body privacy-body">
           <p>
-            This is a static HTML page I host on a personal subdomain. Open the
-            Network tab in DevTools and you'll see exactly two hosts: wherever
-            you loaded the page from, and <code>api.openai.com</code>. That's it.
-            I'm not affiliated with OpenAI — your key goes to them, your bill
-            comes from them.
+            Static HTML on a personal subdomain. Open DevTools → Network and
+            you'll see exactly two hosts: wherever you loaded the page from, and
+            either <code>api.openai.com</code> or <code>openrouter.ai</code>
+            (depending which path you chose).
           </p>
+          <dl class="privacy-list">
+            <div>
+              <dt><span class="tick" aria-hidden="true">→</span> Leaves your browser</dt>
+              <dd>Your API key (Authorization header) and the downscaled JPEG, only to the API host.</dd>
+            </div>
+            <div>
+              <dt><span class="tick tick-no" aria-hidden="true">✕</span> Stays in your browser</dt>
+              <dd>Original photos, processed scans, parsed fields. None uploaded anywhere.</dd>
+            </div>
+            <div>
+              <dt><span class="tick tick-no" aria-hidden="true">✕</span> Never collected</dt>
+              <dd>No accounts, no cookies, no analytics beacons, no third-party scripts.</dd>
+            </div>
+          </dl>
         </div>
-        <dl class="privacy-list">
-          <div>
-            <dt><span class="tick" aria-hidden="true">→</span> Leaves your browser</dt>
-            <dd>Your API key (as an <code>Authorization</code> header) and a downscaled JPEG of each receipt — only to <code>api.openai.com</code>.</dd>
-          </div>
-          <div>
-            <dt><span class="tick tick-no" aria-hidden="true">✕</span> Stays in your browser</dt>
-            <dd>Original full-resolution photos. The cropped/warped outputs. The parsed JSON. None of it is uploaded anywhere.</dd>
-          </div>
-          <div>
-            <dt><span class="tick tick-no" aria-hidden="true">✕</span> Never collected</dt>
-            <dd>No accounts, no cookies, no analytics beacons, no third-party scripts. Close the tab and everything's gone.</dd>
-          </div>
-        </dl>
-      </div>
+      </details>
     </section>
 
-    <!-- ══════════ FAQ ══════════ -->
-    <section id="faq" class="faq" aria-labelledby="faq-title">
-      <header class="faq-head">
-        <p class="eyebrow eyebrow-dark">QUESTIONS</p>
-        <h2 id="faq-title">The things you're probably wondering.</h2>
-      </header>
+    <section id="faq" class="disclosure" aria-labelledby="faq-title">
+      <details>
+        <summary><h2 id="faq-title">FAQ</h2></summary>
+        <div class="disclosure-body">
+          <div class="faq-list">
 
-      <div class="faq-list">
-        <details id="how-to-get-a-key" open>
-          <summary><span class="faq-q">How do I get an OpenAI API key?</span><span class="faq-chev" aria-hidden="true">+</span></summary>
-          <div class="faq-a">
-            <ol>
-              <li>Go to <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">platform.openai.com/api-keys</a> and sign in.</li>
-              <li>Click <em>Create new secret key</em>. Give it any name.</li>
-              <li>Copy the <code>sk-…</code> string and paste it into step 01.</li>
-              <li>Add a small amount of credit at <a href="https://platform.openai.com/settings/organization/billing" target="_blank" rel="noopener">Billing</a>. A few bucks tends to go a long way &mdash; usually hundreds of receipts, but OpenAI sets the rate, not me.</li>
-            </ol>
-          </div>
-        </details>
+            <details id="how-to-get-a-key">
+              <summary><span class="faq-q">How do I get an OpenAI API key?</span><span class="faq-chev" aria-hidden="true">+</span></summary>
+              <div class="faq-a">
+                <ol>
+                  <li>Go to <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">platform.openai.com/api-keys</a> and sign in.</li>
+                  <li>Click <em>Create new secret key</em>. Give it any name.</li>
+                  <li>Copy the <code>sk-…</code> string and paste it into the Connect panel.</li>
+                  <li>Add a small amount of credit at <a href="https://platform.openai.com/settings/organization/billing" target="_blank" rel="noopener">Billing</a>. A few bucks tends to go a long way &mdash; usually hundreds of receipts, but OpenAI sets the rate, not me.</li>
+                </ol>
+              </div>
+            </details>
 
-        <details>
-          <summary><span class="faq-q">What will it cost me?</span><span class="faq-chev" aria-hidden="true">+</span></summary>
-          <div class="faq-a">
-            <p>
-              The tool itself is free. The actual cost is whatever OpenAI charges
-              you for the vision API call, billed directly to your OpenAI account.
-              I'm not affiliated with them and don't know your exact rate &mdash;
-              <a href="https://openai.com/api/pricing/" target="_blank" rel="noopener">check their pricing page</a>
-              for what applies to you.
-            </p>
-            <p class="faq-anecdote">
-              Anecdotally, from my own use, it's tended to be somewhere around:
-            </p>
-            <table class="faq-table">
-              <thead>
-                <tr><th>Mode</th><th>Roughly</th></tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td>Fast</td>
-                  <td class="mono">~1¢ per receipt</td>
-                </tr>
-                <tr>
-                  <td>Batch</td>
-                  <td class="mono">under half a cent per receipt</td>
-                </tr>
-              </tbody>
-            </table>
-            <p class="small-note">
-              Your mileage will vary with image size, model pricing changes, and
-              whatever OpenAI's doing with Batch discounts that week.
-            </p>
-          </div>
-        </details>
+            <details>
+              <summary><span class="faq-q">What will it cost me?</span><span class="faq-chev" aria-hidden="true">+</span></summary>
+              <div class="faq-a">
+                <p>
+                  The tool itself is free. Your cost is whatever OpenAI charges
+                  for the vision call, billed directly to your OpenAI account.
+                  <a href="https://openai.com/api/pricing/" target="_blank" rel="noopener">Check their pricing page</a>
+                  for what applies to you.
+                </p>
+                <p class="faq-anecdote">Anecdotally, from my own use:</p>
+                <table class="faq-table">
+                  <thead><tr><th>Mode</th><th>Roughly</th></tr></thead>
+                  <tbody>
+                    <tr><td>Fast</td><td class="mono">~1¢ per receipt</td></tr>
+                    <tr><td>Batch</td><td class="mono">under half a cent per receipt</td></tr>
+                  </tbody>
+                </table>
+                <p class="small-note">Varies with image size and whatever OpenAI is doing with Batch discounts that week.</p>
+              </div>
+            </details>
 
-        <details>
-          <summary><span class="faq-q">What exactly leaves my browser?</span><span class="faq-chev" aria-hidden="true">+</span></summary>
-          <div class="faq-a">
-            <p>
-              Your API key is read from the input and sent as an <code>Authorization</code>
-              header on requests to OpenAI. Receipt images are downscaled to 1568px
-              on the long edge, then sent (base64-encoded) to OpenAI for OCR. The
-              model's structured response is parsed locally and used to crop and
-              warp the image in-browser. Nothing is sent to any other server.
-            </p>
-          </div>
-        </details>
+            <details>
+              <summary><span class="faq-q">Something says “review” — what do I do?</span><span class="faq-chev" aria-hidden="true">+</span></summary>
+              <div class="faq-a">
+                <p>
+                  A receipt is flagged <em>review</em> when a critical field
+                  (brand, date, amount) is missing, the date isn't valid
+                  <code>YYYY-MM-DD</code>, detected corners don't form a plausible
+                  rectangle, or the model itself reported poor quality. Many of
+                  these are flaky — hit <em>Retry</em> on the row first; it often
+                  succeeds on a second pass.
+                </p>
+              </div>
+            </details>
 
-        <details>
-          <summary><span class="faq-q">Something says “review” — what do I do?</span><span class="faq-chev" aria-hidden="true">+</span></summary>
-          <div class="faq-a">
-            <p>
-              A receipt is flagged <em>review</em> when a critical field (brand,
-              date, amount) is missing, the date isn't a valid <code>YYYY-MM-DD</code>,
-              the detected corners don't form a plausible rectangle, or the model
-              itself reported poor quality. The JPG and JSON still download — just
-              open them, fix the field by hand, and move on.
-            </p>
-          </div>
-        </details>
+            <details>
+              <summary><span class="faq-q">Who made this? Is it a product?</span><span class="faq-chev" aria-hidden="true">+</span></summary>
+              <div class="faq-a">
+                <p>
+                  Just a person, not a product. Built it for my own tax prep and
+                  left it online. MIT-licensed, no signup, no payment to me, no
+                  affiliation with OpenAI. Source:
+                  <a href="https://github.com/orlenko/receipts" target="_blank" rel="noopener">github.com/orlenko/receipts</a>.
+                </p>
+              </div>
+            </details>
 
-        <details>
-          <summary><span class="faq-q">Who made this? Is it a product?</span><span class="faq-chev" aria-hidden="true">+</span></summary>
-          <div class="faq-a">
-            <p>
-              Just a person, not a product. I built it to speed up my own tax
-              prep and put it online in case it helps someone else. It's MIT-licensed,
-              hosted on a personal subdomain, no signup, no payment to me, no
-              analytics beyond anonymous pageviews. If you want to tweak it,
-              fork the <a href="https://github.com/orlenko/receipts" target="_blank" rel="noopener">repo</a>.
-              I'm not affiliated with OpenAI; I just call their API.
-            </p>
-          </div>
-        </details>
+            <details>
+              <summary><span class="faq-q">Why not just use a SaaS OCR product?</span><span class="faq-chev" aria-hidden="true">+</span></summary>
+              <div class="faq-a">
+                <p>
+                  Plenty exist and some are great. This one exists because I
+                  didn't want to hand my receipts to another company whose
+                  retention policy I'd never read. Bring your own key, run it on
+                  your own machine, ship the output into your own folder. Close
+                  the tab and it's gone.
+                </p>
+              </div>
+            </details>
 
-        <details>
-          <summary><span class="faq-q">Why not just use a SaaS OCR product?</span><span class="faq-chev" aria-hidden="true">+</span></summary>
-          <div class="faq-a">
-            <p>
-              Plenty of them exist and some are great. This one exists because
-              I personally didn't want to hand my receipts &mdash; vendor names,
-              amounts, dates, sometimes my home address &mdash; to yet another
-              company whose retention policy I'd never read. Bring your own key,
-              run it on your own machine, ship the output into your own folder.
-              Close the tab and it's gone.
-            </p>
           </div>
-        </details>
-      </div>
+        </div>
+      </details>
     </section>
   </main>
 
-  <!-- ═══════════════════════════════════════════════════════════════════
-       FOOTER
-       ═══════════════════════════════════════════════════════════════════ -->
   <footer class="site-foot">
-    <div class="perforated perforated-flip" aria-hidden="true"></div>
-    <div class="foot-inner">
-      <div class="foot-brand">
-        <div class="wordmark"><span class="wordmark-dot" aria-hidden="true"></span> receipts</div>
-        <p class="foot-tag">A personal tool I left online. MIT, free, no affiliation with OpenAI.</p>
-      </div>
-      <ul class="foot-links">
-        <li><a href="https://github.com/orlenko/receipts" target="_blank" rel="noopener">Source on GitHub</a></li>
-        <li><a href="https://github.com/orlenko/receipts/blob/main/LICENSE" target="_blank" rel="noopener">MIT License</a></li>
-        <li><a href="#privacy">Privacy</a></li>
-        <li><a href="#faq">FAQ</a></li>
-      </ul>
-      <p class="foot-mono">One HTML, one CSS, one JS. Nothing to sell you.</p>
-    </div>
+    <p class="foot-mono">
+      <span class="wordmark-dot" aria-hidden="true"></span>
+      receipts &middot;
+      <a href="https://github.com/orlenko/receipts" target="_blank" rel="noopener">MIT source</a> &middot;
+      not affiliated with OpenAI
+    </p>
   </footer>
 
+  <!-- Hidden row template: keeps renderRow() readable. -->
+  <template id="row-tpl">
+    <li class="row" data-state="queued">
+      <div class="row-main">
+        <span class="row-idx"></span>
+        <img class="row-thumb" alt="" />
+        <div class="row-body">
+          <div class="row-head">
+            <span class="row-name"></span>
+            <span class="row-status"><span class="row-status-dot"></span><span class="row-status-text">queued</span></span>
+          </div>
+          <div class="row-meta" hidden>
+            <span class="rm-brand"></span>
+            <span class="rm-dot" aria-hidden="true">·</span>
+            <span class="rm-amount"></span>
+            <span class="rm-dot" aria-hidden="true">·</span>
+            <span class="rm-date"></span>
+          </div>
+        </div>
+        <div class="row-actions">
+          <button class="row-retry btn btn-ghost btn-sm" type="button" hidden>Retry</button>
+          <button class="row-expand btn btn-ghost btn-sm" type="button" aria-expanded="false" hidden>Details</button>
+        </div>
+      </div>
+      <div class="row-expand-body" hidden>
+        <div class="row-expand-grid">
+          <img class="row-processed" alt="" />
+          <dl class="row-fields"></dl>
+        </div>
+        <div class="row-expand-foot">
+          <span class="row-slug mono"></span>
+          <button class="row-reprocess btn btn-ghost btn-sm" type="button">Reprocess this one</button>
+        </div>
+      </div>
+    </li>
+  </template>
+
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-  <script type="module" src="app.js"></script>
+  <script type="module" src="app.js?v=12"></script>
 </body>
 </html>

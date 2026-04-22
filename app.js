@@ -6,6 +6,9 @@ import { listBatches, getBatchRecord, deleteBatchAndFiles } from './db.js';
 import {
   submitBatch, refreshStatus, fetchAndProcess, hydrateResults, TERMINAL_STATES,
 } from './batch.js';
+import {
+  beginOpenRouterAuth, completeOpenRouterAuth, isReturningFromOpenRouter,
+} from './auth.js';
 
 const EXTRACTION_PROMPT = `You are extracting structured data from a photo of a receipt.
 
@@ -52,32 +55,91 @@ For text fields you cannot read confidently, use null. For optional strings
 (address/city/region/country/phone), use "" if absent.
 Output JSON only, no prose, no markdown fences.`;
 
-const MODEL = 'gpt-5.4';
+// Two providers supported:
+//   - 'openai':     direct to api.openai.com with the user's own key. Cheapest,
+//                   supports batch mode (~50% off via the Batch API).
+//   - 'openrouter': via openrouter.ai using a PKCE-OAuth-issued key. One extra
+//                   hop in the trust chain, ~5% markup, batch API not exposed.
+const MODEL_OPENAI = 'gpt-5.4';
+const MODEL_OPENROUTER = 'openai/gpt-5.4';
+const API_BASE = {
+  openai: 'https://api.openai.com/v1',
+  openrouter: 'https://openrouter.ai/api/v1',
+};
+
 const API_MAX_EDGE = 1568;
-const KEY_STORAGE = 'receipts.openai_key';
+const KEY_STORAGE = 'receipts.openai_key';        // legacy; still read on first load
+const PROVIDER_STORAGE = 'receipts.provider';     // 'openai' | 'openrouter'
+const PROVIDER_KEY_STORAGE = 'receipts.provider_key';
 const MODE_STORAGE = 'receipts.mode';
 
 // ---------- state ----------
+function loadInitialAuth() {
+  // Migrate the v1 single-key storage into the new (provider, key) shape.
+  const provider = localStorage.getItem(PROVIDER_STORAGE);
+  const providerKey = localStorage.getItem(PROVIDER_KEY_STORAGE);
+  if (provider && providerKey) return { provider, apiKey: providerKey };
+  const legacy = localStorage.getItem(KEY_STORAGE);
+  if (legacy) {
+    localStorage.setItem(PROVIDER_STORAGE, 'openai');
+    localStorage.setItem(PROVIDER_KEY_STORAGE, legacy);
+    return { provider: 'openai', apiKey: legacy };
+  }
+  return { provider: 'openai', apiKey: '' };
+}
+
+const initialAuth = loadInitialAuth();
 const state = {
-  apiKey: localStorage.getItem(KEY_STORAGE) || '',
+  provider: initialAuth.provider,        // 'openai' | 'openrouter'
+  apiKey: initialAuth.apiKey,
   mode: localStorage.getItem(MODE_STORAGE) === 'batch' ? 'batch' : 'live',
   queue: [], // [{id, file, thumbUrl}]
   results: [], // [{id, file, fields, status, reasons, processedBlob, processedUrl}]
+  // Live-mode progress: which queue item is currently in flight, plus index/total
+  // for the queue-summary readout. Set/cleared by runLiveProcessing.
+  isProcessing: false,
+  processingId: null,
+  processingIndex: 0,
+  processingTotal: 0,
 };
+
+function persistAuth(provider, key) {
+  state.provider = provider;
+  state.apiKey = key;
+  if (provider && key) {
+    localStorage.setItem(PROVIDER_STORAGE, provider);
+    localStorage.setItem(PROVIDER_KEY_STORAGE, key);
+  }
+}
+function clearAuth() {
+  state.apiKey = '';
+  localStorage.removeItem(KEY_STORAGE);
+  localStorage.removeItem(PROVIDER_KEY_STORAGE);
+  // keep the provider preference so the right tab is selected next time
+}
 
 // ---------- DOM refs ----------
 const $ = (id) => document.getElementById(id);
 const keyInput = $('api-key');
-const keyStatus = $('key-status');
 const saveKeyBtn = $('save-key');
 const clearKeyBtn = $('clear-key');
+
+const orSignoutBtn = $('or-signout');
+const authOpts = document.querySelectorAll('.auth-opt');
+
+const connectDrawer = $('connect-drawer');
+const connChip = $('conn-chip');
+const connChipLabel = connChip?.querySelector('.conn-chip-label');
+const infoBtn = $('info-btn');
+const infoPanel = $('info-panel');
 
 const dropZone = $('drop-zone');
 const fileInput = $('file-input');
 
-const queueSection = $('queue-section');
+const workSection = $('work');
 const queueSummary = $('queue-summary');
-const queueList = $('queue-list');
+const rowsList = $('rows');
+const rowTemplate = $('row-tpl');
 const modeLiveBtn = $('mode-live');
 const modeBatchBtn = $('mode-batch');
 const modeNote = $('mode-note');
@@ -87,37 +149,143 @@ const clearQueueBtn = $('clear-queue-btn');
 const batchesSection = $('batches-section');
 const batchList = $('batch-list');
 
-const resultsSection = $('results-section');
-const resultsList = $('results-list');
 const downloadAllBtn = $('download-all-btn');
-const downloadCsvBtn = $('download-csv-btn');
 
 const PLATFORM_BATCH_URL = (id) => `https://platform.openai.com/batches/${id}`;
 
-// ---------- API key ----------
-function renderKeyStatus() {
-  if (state.apiKey) {
-    keyStatus.textContent = `Key saved locally (ends in …${state.apiKey.slice(-4)}). Ready to process.`;
-    keyStatus.classList.add('is-set');
-    keyInput.value = '';
+// ---------- connection chrome ----------
+// Drives body[data-app-state] (which the design uses to swap layout between
+// first-visit, connected, and working) plus the top-bar chip + drawer collapse.
+//
+// State machine:
+//   no key                    → 'first'      drawer open, chip hidden
+//   key + no rows             → 'connected'  drawer collapsed, chip in bar
+//   key + queue or results    → 'working'    same chrome, padding tweak only
+//
+// The chip click can force the drawer back open without us re-collapsing it
+// the next time renderKeyStatus runs (e.g. after the user pastes a key).
+let drawerForcedOpen = false;
+function syncConnectionUI() {
+  const connected = !!state.apiKey;
+  const hasRows = state.queue.length || state.results.length;
+  document.body.dataset.appState = !connected ? 'first' : (hasRows ? 'working' : 'connected');
+
+  if (connected) {
+    if (connChip) {
+      connChip.hidden = false;
+      const providerLabel = state.provider === 'openrouter' ? 'OpenRouter' : 'OpenAI';
+      if (connChipLabel) connChipLabel.textContent = `${providerLabel} · …${state.apiKey.slice(-4)}`;
+    }
+    if (connectDrawer && !drawerForcedOpen) {
+      connectDrawer.hidden = true;
+      connChip?.setAttribute('aria-expanded', 'false');
+    }
   } else {
-    keyStatus.textContent = 'No key saved yet — paste one above to begin.';
-    keyStatus.classList.remove('is-set');
+    if (connChip) {
+      connChip.hidden = true;
+      connChip.setAttribute('aria-expanded', 'false');
+    }
+    if (connectDrawer) connectDrawer.hidden = false;
+    drawerForcedOpen = false;
   }
 }
-saveKeyBtn.addEventListener('click', () => {
+connChip?.addEventListener('click', () => {
+  if (!connectDrawer) return;
+  const opening = connectDrawer.hidden;
+  connectDrawer.hidden = !opening;
+  drawerForcedOpen = opening;
+  connChip.setAttribute('aria-expanded', String(opening));
+  if (opening) connectDrawer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+});
+
+// "?" popover in the top bar. Closes on: outside-the-wrapper click, Escape,
+// or activating any of its own anchor links (so the menu collapses while the
+// browser scrolls to the disclosure section).
+const infoMenuWrap = infoBtn?.closest('.info-menu');
+function closeInfoPanel() {
+  if (!infoPanel || infoPanel.hidden) return;
+  infoPanel.hidden = true;
+  infoBtn?.setAttribute('aria-expanded', 'false');
+}
+infoBtn?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  if (!infoPanel) return;
+  const opening = infoPanel.hidden;
+  infoPanel.hidden = !opening;
+  infoBtn.setAttribute('aria-expanded', String(opening));
+});
+document.addEventListener('click', (e) => {
+  if (!infoPanel || infoPanel.hidden) return;
+  if (infoMenuWrap && infoMenuWrap.contains(e.target)) return;
+  closeInfoPanel();
+});
+infoPanel?.addEventListener('click', (e) => {
+  if (e.target.closest('a')) closeInfoPanel();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeInfoPanel();
+});
+
+// ---------- API key / provider auth ----------
+// Each auth option has two views: a default <div class="auth-form"> (input or
+// "Sign in" button) and an <div class="auth-active"> ("✓ saved …xyz [Clear]")
+// shown only when that option is the one currently providing the credential.
+function renderKeyStatus() {
+  const activeProvider = state.apiKey ? state.provider : null;
+  authOpts.forEach((opt) => {
+    const provider = opt.dataset.provider;
+    const form = opt.querySelector('.auth-form');
+    const active = opt.querySelector('.auth-active');
+    const isActive = provider === activeProvider;
+    if (form)   form.hidden   = isActive;
+    if (active) active.hidden = !isActive;
+    if (isActive) {
+      const suffix = opt.querySelector('.key-suffix');
+      if (suffix) suffix.textContent = `…${state.apiKey.slice(-4)}`;
+    }
+  });
+  if (keyInput) keyInput.value = '';
+
+  // Batch mode is OpenAI-only (OpenRouter doesn't expose the Batch API).
+  if (modeBatchBtn) {
+    const orMode = state.provider === 'openrouter' && !!state.apiKey;
+    modeBatchBtn.disabled = orMode;
+    modeBatchBtn.title = orMode
+      ? 'Batch mode is only available with a direct OpenAI key (OpenRouter doesn\u2019t expose the Batch API)'
+      : '';
+    if (orMode && state.mode === 'batch') setMode('live');
+  }
+  syncConnectionUI();
+}
+function saveOpenAiKeyFromInput() {
   const v = keyInput.value.trim();
   if (!v) return;
-  state.apiKey = v;
-  localStorage.setItem(KEY_STORAGE, v);
+  persistAuth('openai', v);
   renderKeyStatus();
+}
+saveKeyBtn.addEventListener('click', saveOpenAiKeyFromInput);
+// Auto-save on blur after a paste/edit (no need to hunt for the green button).
+keyInput.addEventListener('change', saveOpenAiKeyFromInput);
+keyInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); saveOpenAiKeyFromInput(); }
 });
 clearKeyBtn.addEventListener('click', () => {
-  state.apiKey = '';
-  localStorage.removeItem(KEY_STORAGE);
+  clearAuth();
   renderKeyStatus();
 });
-renderKeyStatus();
+orSignoutBtn?.addEventListener('click', () => {
+  clearAuth();
+  renderKeyStatus();
+});
+
+// OpenRouter PKCE: redirect to /auth, user signs in (or creates an account on
+// OpenRouter's side), they're redirected back here with ?code=... which the
+// init block picks up and exchanges for a long-lived API key.
+const orLoginBtn = $('or-login');
+orLoginBtn?.addEventListener('click', async () => {
+  try { await beginOpenRouterAuth(); }
+  catch (e) { alert(`Could not start OpenRouter sign-in: ${e.message}`); }
+});
 
 // ---------- drop zone ----------
 ['dragenter', 'dragover'].forEach(evt => {
@@ -129,6 +297,20 @@ renderKeyStatus();
 dropZone.addEventListener('drop', e => addFiles(e.dataTransfer.files));
 fileInput.addEventListener('change', e => addFiles(e.target.files));
 
+// Whole drop zone acts as a click target for the file picker. The "Or choose
+// files" label already opens the picker natively via <label for>; bail when
+// the click came from the label so we don't double-trigger.
+dropZone.addEventListener('click', (e) => {
+  if (e.target.closest('label.file-pick')) return;
+  fileInput.click();
+});
+dropZone.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' || e.key === ' ') {
+    e.preventDefault();
+    fileInput.click();
+  }
+});
+
 function addFiles(fileList) {
   const files = Array.from(fileList).filter(f => /^image\/(jpeg|png)$/.test(f.type));
   if (!files.length) return;
@@ -137,33 +319,196 @@ function addFiles(fileList) {
     const thumbUrl = URL.createObjectURL(f);
     state.queue.push({ id, file: f, thumbUrl });
   }
-  renderQueue();
+  renderRows();
 }
-function renderQueue() {
-  if (!state.queue.length) {
-    queueSection.hidden = true;
+// The redesign uses a single #rows list for both queued and processed items.
+// Each row uses the <template id="row-tpl"> in index.html and transitions
+// through data-state values: queued → working → ok | review | error.
+function renderRows() {
+  syncConnectionUI();
+  const haveAny = state.queue.length || state.results.length;
+  workSection.hidden = !haveAny;
+  if (!haveAny) {
+    rowsList.innerHTML = '';
+    queueSummary.textContent = '';
+    downloadAllBtn.hidden = true;
     return;
   }
-  queueSection.hidden = false;
-  const n = state.queue.length;
-  queueSummary.textContent = `${String(n).padStart(2, '0')} file${n === 1 ? '' : 's'} ready`;
-  queueList.innerHTML = '';
-  state.queue.forEach((item, i) => {
-    const li = document.createElement('li');
-    li.dataset.id = item.id;
-    li.innerHTML = `
-      <span class="idx">${String(i + 1).padStart(2, '0')}</span>
-      <img class="thumb" src="${item.thumbUrl}" alt="" />
-      <span class="name">${escapeHtml(item.file.name)}</span>
-      <span class="status">queued</span>
-    `;
-    queueList.appendChild(li);
+  const resultsById = new Map(state.results.map(r => [r.id, r]));
+  const rendered = new Set();
+  rowsList.innerHTML = '';
+  let i = 0;
+  for (const item of state.queue) {
+    i++;
+    rowsList.appendChild(buildRow(item, resultsById.get(item.id), i));
+    rendered.add(item.id);
+  }
+  // Hydrated batch results may not have a queue entry — render those after.
+  for (const r of state.results) {
+    if (rendered.has(r.id)) continue;
+    i++;
+    rowsList.appendChild(buildRow({ id: r.id, file: r.file, thumbUrl: null }, r, i));
+  }
+  const total = i;
+  const done = state.results.length;
+  if (state.isProcessing && state.processingTotal) {
+    queueSummary.textContent = `Processing ${String(state.processingIndex).padStart(2, '0')} of ${String(state.processingTotal).padStart(2, '0')}…`;
+  } else {
+    queueSummary.textContent = done
+      ? `${String(done).padStart(2, '0')}/${String(total).padStart(2, '0')} done`
+      : `${String(total).padStart(2, '0')} file${total === 1 ? '' : 's'} ready`;
+  }
+  // Hide the download button while work is in flight — otherwise it reads as
+  // "all done, grab your zip" the moment the first row lands.
+  const haveExportable = state.results.some(r => r.status === 'ok' || r.status === 'review');
+  downloadAllBtn.hidden = state.isProcessing || !haveExportable;
+}
+
+function buildRow(item, result, idx) {
+  const node = rowTemplate.content.firstElementChild.cloneNode(true);
+  node.dataset.id = item.id;
+  node.querySelector('.row-idx').textContent = String(idx).padStart(2, '0');
+  const thumb = node.querySelector('.row-thumb');
+  if (item.thumbUrl) thumb.src = item.thumbUrl;
+  else if (result?.processedUrl) thumb.src = result.processedUrl;
+  else thumb.removeAttribute('src');
+  node.querySelector('.row-name').textContent = item.file?.name || '(unnamed)';
+
+  if (!result) {
+    if (state.processingId === item.id) {
+      node.dataset.state = 'working';
+      setRowStatus(node, 'processing…', '');
+    } else {
+      node.dataset.state = 'queued';
+      setRowStatus(node, 'queued', '');
+    }
+    return node;
+  }
+  applyResultToRow(node, item, result);
+  return node;
+}
+
+function setRowStatus(node, text, klass = '') {
+  const status = node.querySelector('.row-status');
+  status.className = 'row-status' + (klass ? ` ${klass}` : '');
+  node.querySelector('.row-status-text').textContent = text;
+}
+
+function setRowStatusById(id, text, klass = '') {
+  const li = rowsList.querySelector(`li[data-id="${id}"]`);
+  if (!li) return;
+  // Map klass (used by callers as a shorthand) → CSS data-state. Empty klass
+  // means in-flight, which the design styles as 'working'.
+  li.dataset.state = klass === 'ok' ? 'ok'
+    : klass === 'review' ? 'review'
+    : klass === 'error' ? 'error'
+    : 'working';
+  setRowStatus(li, text, klass);
+}
+
+function applyResultToRow(node, item, r) {
+  const stateClass = r.status === 'ok' ? 'ok' : r.status === 'error' ? 'error' : 'review';
+  node.dataset.state = stateClass;
+  const label = r.status === 'ok' ? 'ok'
+    : r.status === 'error' ? 'error'
+    : `review · ${(r.reasons || []).join(' · ')}`;
+  setRowStatus(node, label, stateClass);
+
+  const f = r.fields || {};
+  // Once we know the brand, the row’s primary identifier becomes the brand
+  // ("Canadian Tire") rather than the camera-roll filename. The brand piece
+  // is then dropped from the meta line to avoid a redundant repeat.
+  const brand = f.brand || f.vendor || '';
+  if (brand) node.querySelector('.row-name').textContent = brand;
+  const meta = node.querySelector('.row-meta');
+  const rmBrand = node.querySelector('.rm-brand');
+  const firstDot = rmBrand.nextElementSibling;
+  rmBrand.remove();
+  firstDot?.remove();
+  node.querySelector('.rm-amount').textContent = typeof f.amount === 'number' ? f.amount.toFixed(2) : (f.amount || '');
+  node.querySelector('.rm-date').textContent = f.date || '';
+  meta.hidden = false;
+
+  const expandBtn = node.querySelector('.row-expand');
+  const expandBody = node.querySelector('.row-expand-body');
+  expandBtn.hidden = false;
+  expandBtn.addEventListener('click', () => {
+    const opening = expandBody.hidden;
+    expandBody.hidden = !opening;
+    expandBtn.setAttribute('aria-expanded', String(opening));
   });
+
+  const processed = node.querySelector('.row-processed');
+  if (r.processedUrl) {
+    processed.src = r.processedUrl;
+    processed.alt = `Processed scan of ${r.file?.name || 'receipt'}`;
+  } else {
+    processed.remove();
+  }
+
+  const dl = node.querySelector('.row-fields');
+  const fieldRows = [
+    ['vendor',   f.vendor,  false],
+    ['brand',    f.brand,   false],
+    ['address',  f.address, false],
+    ['date',     f.date,    true],
+    ['subtotal', fmtNum(f.subtotal), true],
+    ['tax',      fmtNum(f.tax),      true],
+    ['amount',   fmtNum(f.amount),   true],
+    ['currency', f.currency, true],
+    ['quality',  f.quality,  false],
+  ];
+  for (const [k, v, numeric] of fieldRows) {
+    if (v == null || v === '') continue;
+    const dt = document.createElement('dt'); dt.textContent = k;
+    const dd = document.createElement('dd'); dd.textContent = String(v);
+    if (numeric) dd.className = 'num';
+    dl.appendChild(dt); dl.appendChild(dd);
+  }
+
+  const slugBase = r.slug || (r.file?.name || '').replace(/\.[^.]+$/, '');
+  node.querySelector('.row-slug').textContent = `${slugBase}.jpg`;
+
+  const reprocessBtn = node.querySelector('.row-reprocess');
+  reprocessBtn.addEventListener('click', () => reprocessOne(item.id));
+
+  const retryBtn = node.querySelector('.row-retry');
+  if (r.status === 'error' || r.status === 'review') {
+    retryBtn.hidden = false;
+    retryBtn.addEventListener('click', () => reprocessOne(item.id));
+  }
+}
+
+async function reprocessOne(id) {
+  const item = state.queue.find(q => q.id === id);
+  if (!item) { alert('Original photo no longer in this session — cannot retry.'); return; }
+  if (!state.apiKey) { alert('Please connect first.'); return; }
+  state.results = state.results.filter(r => r.id !== id);
+  state.isProcessing = true;
+  state.processingTotal = 1;
+  state.processingIndex = 1;
+  state.processingId = id;
+  renderRows();
+  try {
+    const result = await processOne(item);
+    state.results.push(result);
+  } catch (e) {
+    console.error(e);
+    state.results.push({ id, file: item.file, status: 'error', reasons: [e.message.slice(0, 80)], fields: {} });
+  } finally {
+    state.isProcessing = false;
+    state.processingId = null;
+    state.processingIndex = 0;
+    state.processingTotal = 0;
+    renderRows();
+  }
 }
 clearQueueBtn.addEventListener('click', () => {
   for (const item of state.queue) URL.revokeObjectURL(item.thumbUrl);
+  for (const r of state.results) if (r.processedUrl) URL.revokeObjectURL(r.processedUrl);
   state.queue = [];
-  renderQueue();
+  state.results = [];
+  renderRows();
 });
 
 // ---------- image decoding + downscale ----------
@@ -203,14 +548,22 @@ async function blobToDataUrl(blob) {
 
 // ---------- OpenAI call ----------
 async function extractFields(apiJpegDataUrl) {
-  const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+  const base = API_BASE[state.provider] || API_BASE.openai;
+  const model = state.provider === 'openrouter' ? MODEL_OPENROUTER : MODEL_OPENAI;
+  const headers = {
+    'Authorization': `Bearer ${state.apiKey}`,
+    'Content-Type': 'application/json',
+  };
+  // OpenRouter recommends these for proper attribution / app analytics.
+  if (state.provider === 'openrouter') {
+    headers['HTTP-Referer'] = window.location.origin;
+    headers['X-Title'] = 'receipts';
+  }
+  const resp = await fetch(`${base}/chat/completions`, {
     method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${state.apiKey}`,
-      'Content-Type': 'application/json',
-    },
+    headers,
     body: JSON.stringify({
-      model: MODEL,
+      model,
       temperature: 0,
       response_format: { type: 'json_object' },
       messages: [
@@ -299,15 +652,6 @@ async function processOne(item) {
   };
 }
 
-function setQueueStatus(id, text, klass = '') {
-  const li = queueList.querySelector(`li[data-id="${id}"] .status`);
-  if (!li) return;
-  li.textContent = text;
-  li.className = 'status' + (klass ? ` ${klass}` : '');
-  if (!klass && /processing/i.test(text)) li.setAttribute('data-busy', '');
-  else li.removeAttribute('data-busy');
-}
-
 // ---------- shared: prepare image for API ----------
 async function prepareApiBlob(file) {
   const srcCanvas = await fileToCanvas(file);
@@ -326,8 +670,9 @@ function setMode(m) {
   modeNote.textContent = m === 'live'
     ? 'Each receipt fires its own request and shows up as it finishes. Best when you want to watch them roll in.'
     : 'Submitted to OpenAI\u2019s Batch API. Usually done in a few minutes, and cheaper than fast mode. Bonus: it survives a tab close \u2014 come back here and your batch will be waiting.';
+  modeNote.hidden = false;
   runBtn.textContent = m === 'live' ? 'Process now' : 'Submit batch';
-  renderQueue();
+  renderRows();
 }
 modeLiveBtn.addEventListener('click', () => setMode('live'));
 modeBatchBtn.addEventListener('click', () => setMode('batch'));
@@ -346,24 +691,28 @@ async function runBatchSubmission() {
   if (!state.queue.length) return;
   runBtn.disabled = true;
   clearQueueBtn.disabled = true;
+  state.isProcessing = true;
+  state.processingTotal = state.queue.length;
+  state.processingIndex = state.queue.length;  // "Processing N of N…" while uploading
+  renderRows();
 
   const queueSnapshot = state.queue.slice();
-  for (const item of queueSnapshot) setQueueStatus(item.id, 'preparing…');
+  for (const item of queueSnapshot) setRowStatusById(item.id, 'preparing…');
 
   try {
     const record = await submitBatch({
       queue: queueSnapshot,
       prepareApiBlob,
       extractionPrompt: EXTRACTION_PROMPT,
-      model: MODEL,
+      model: MODEL_OPENAI,
       apiKey: state.apiKey,
       onProgress: (msg) => {
-        for (const item of queueSnapshot) setQueueStatus(item.id, msg.length > 50 ? msg.slice(0, 50) + '…' : msg);
+        for (const item of queueSnapshot) setRowStatusById(item.id, msg.length > 50 ? msg.slice(0, 50) + '…' : msg);
       },
     });
     for (const item of queueSnapshot) URL.revokeObjectURL(item.thumbUrl);
     state.queue = [];
-    renderQueue();
+    renderRows();
     await refreshAndRenderBatches();
     startPolling();
     alert(
@@ -372,10 +721,14 @@ async function runBatchSubmission() {
   } catch (e) {
     console.error(e);
     alert(`Submit failed: ${e.message}`);
-    for (const item of queueSnapshot) setQueueStatus(item.id, 'submit failed', 'error');
+    for (const item of queueSnapshot) setRowStatusById(item.id, 'submit failed', 'error');
   } finally {
+    state.isProcessing = false;
+    state.processingIndex = 0;
+    state.processingTotal = 0;
     runBtn.disabled = false;
     clearQueueBtn.disabled = false;
+    renderRows();
   }
 }
 
@@ -453,8 +806,8 @@ async function onFetchBatch(batch_id) {
   // If we've already fetched and warped, just re-render from IDB.
   if (rec.fetched) {
     state.results = hydrateResults(rec).map(attachProcessedUrl);
-    renderResults();
-    document.getElementById('results-section')?.scrollIntoView({ behavior: 'smooth' });
+    renderRows();
+    workSection.scrollIntoView({ behavior: 'smooth' });
     return;
   }
 
@@ -468,9 +821,9 @@ async function onFetchBatch(batch_id) {
       onProgress: (msg) => console.log(msg),
     });
     state.results = results.map(attachProcessedUrl);
-    renderResults();
+    renderRows();
     await refreshAndRenderBatches();
-    document.getElementById('results-section')?.scrollIntoView({ behavior: 'smooth' });
+    workSection.scrollIntoView({ behavior: 'smooth' });
   } catch (e) {
     alert(`Fetch failed: ${e.message}`);
   }
@@ -511,90 +864,43 @@ async function runLiveProcessing() {
   if (!state.queue.length) return;
   runBtn.disabled = true;
   clearQueueBtn.disabled = true;
-  for (const item of state.queue) {
-    setQueueStatus(item.id, 'processing…');
-    try {
-      const result = await processOne(item);
-      state.results.push(result);
-      setQueueStatus(item.id, result.status === 'ok' ? 'ok' : `review: ${result.reasons.join(',')}`, result.status === 'ok' ? 'ok' : 'review');
-      renderResults();
-    } catch (e) {
-      console.error(e);
-      setQueueStatus(item.id, `error: ${e.message.slice(0, 40)}`, 'error');
+  // Only count items that don’t already have a result (e.g. after a Retry on
+  // a failed row sitting next to others that already finished).
+  const todo = state.queue.filter(q => !state.results.some(r => r.id === q.id));
+  state.isProcessing = true;
+  state.processingTotal = todo.length;
+  state.processingIndex = 0;
+  state.processingId = null;
+  renderRows();
+  try {
+    for (const item of todo) {
+      state.processingIndex += 1;
+      state.processingId = item.id;
+      renderRows();
+      try {
+        const result = await processOne(item);
+        state.results.push(result);
+      } catch (e) {
+        console.error(e);
+        state.results.push({
+          id: item.id,
+          file: item.file,
+          status: 'error',
+          reasons: [e.message.slice(0, 80)],
+          fields: {},
+        });
+      }
+      state.processingId = null;
+      renderRows();
     }
-  }
-  runBtn.disabled = false;
-  clearQueueBtn.disabled = false;
-}
-
-// ---------- results ----------
-function renderResults() {
-  if (!state.results.length) {
-    resultsSection.hidden = true;
-    return;
-  }
-  resultsSection.hidden = false;
-  resultsList.innerHTML = '';
-  for (const r of state.results) {
-    const card = document.createElement('div');
-    card.className = 'result-card';
-
-    const badgeClass = r.status === 'ok' ? 'ok' : r.status === 'error' ? 'error' : 'review';
-    const badgeLabel = r.status === 'ok' ? 'ok' : r.status === 'error' ? 'error' : 'review';
-    const reasonsHtml = (r.status !== 'ok' && r.reasons?.length)
-      ? `<span class="reasons">${escapeHtml(r.reasons.join(' · '))}</span>` : '';
-
-    const slugBase = r.slug || r.file.name.replace(/\.[^.]+$/, '');
-
-    const imgHtml = r.processedUrl
-      ? `<img class="processed" src="${r.processedUrl}" alt="Processed scan of ${escapeHtml(r.file.name)}" />`
-      : `<div class="processed processed-empty" aria-label="No image (warp failed or source unavailable)">no image</div>`;
-
-    card.innerHTML = `
-      ${imgHtml}
-      <div class="fields">
-        <div class="fields-head">
-          <span class="file-name">${escapeHtml(slugBase)}.jpg</span>
-          <span class="badge ${badgeClass}">${badgeLabel}</span>
-          ${reasonsHtml}
-        </div>
-        <dl></dl>
-        <div class="actions">
-          <button data-act="dl-jpg" class="btn btn-ghost">Download JPG</button>
-          <button data-act="dl-json" class="btn btn-ghost">Download JSON</button>
-        </div>
-      </div>
-    `;
-
-    const dl = card.querySelector('dl');
-    const rows = [
-      ['vendor',   r.fields.vendor,  false],
-      ['brand',    r.fields.brand,   false],
-      ['address',  r.fields.address, false],
-      ['date',     r.fields.date,    true],
-      ['subtotal', fmtNum(r.fields.subtotal), true],
-      ['tax',      fmtNum(r.fields.tax),      true],
-      ['amount',   fmtNum(r.fields.amount),   true],
-      ['currency', r.fields.currency, true],
-      ['quality',  r.fields.quality,  false],
-    ];
-    for (const [k, v, numeric] of rows) {
-      if (v == null || v === '') continue;
-      const dt = document.createElement('dt'); dt.textContent = k;
-      const dd = document.createElement('dd'); dd.textContent = String(v);
-      if (numeric) dd.className = 'num';
-      dl.appendChild(dt); dl.appendChild(dd);
-    }
-
-    const dlJpgBtn = card.querySelector('[data-act="dl-jpg"]');
-    if (r.processedBlob) {
-      dlJpgBtn.addEventListener('click', () => downloadBlob(r.processedBlob, `${slugBase}.jpg`));
-    } else {
-      dlJpgBtn.disabled = true;
-      dlJpgBtn.title = 'No processed image available';
-    }
-    card.querySelector('[data-act="dl-json"]').addEventListener('click', () => downloadJson(r.fields, `${slugBase}.json`));
-    resultsList.appendChild(card);
+  } finally {
+    state.isProcessing = false;
+    state.processingId = null;
+    state.processingIndex = 0;
+    state.processingTotal = 0;
+    runBtn.disabled = false;
+    clearQueueBtn.disabled = false;
+    renderRows();
   }
 }
 
@@ -614,27 +920,6 @@ downloadAllBtn.addEventListener('click', async () => {
   const blob = await zip.generateAsync({ type: 'blob' });
   downloadBlob(blob, 'receipts.zip');
 });
-
-if (downloadCsvBtn) {
-  downloadCsvBtn.addEventListener('click', async () => {
-    if (!state.results.length) return;
-    const okCsv = buildCsv(state.results, 'ok');
-    const reviewCsv = buildCsv(state.results, 'review');
-    if (okCsv && reviewCsv) {
-      // Two files — ship them in a small zip rather than two back-to-back downloads.
-      const miniZip = new JSZip();
-      miniZip.file('ok.csv', '\ufeff' + okCsv);
-      miniZip.file('review.csv', '\ufeff' + reviewCsv);
-      const blob = await miniZip.generateAsync({ type: 'blob' });
-      downloadBlob(blob, 'receipts-csv.zip');
-    } else {
-      const csv = okCsv || reviewCsv;
-      const name = okCsv ? 'ok.csv' : 'review.csv';
-      const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' });
-      downloadBlob(blob, name);
-    }
-  });
-}
 
 // ---------- CSV export ----------
 // Two flavors: "ok" for clean bookkeeping rows, "review" adds status/reasons up
@@ -725,9 +1010,24 @@ function fmtNum(v) {
 
 // ---------- init ----------
 (async () => {
+  // 1. If we just landed back from the OpenRouter authorize page, finish the
+  //    PKCE handshake before anything else looks at state.apiKey.
+  if (isReturningFromOpenRouter()) {
+    try {
+      const { key } = await completeOpenRouterAuth();
+      persistAuth('openrouter', key);
+      renderKeyStatus();
+    } catch (e) {
+      console.warn('OpenRouter callback failed:', e);
+      alert(`Sign-in failed: ${e.message}`);
+    }
+  } else {
+    renderKeyStatus();
+  }
+  // 2. Resume any persisted batches from a previous session.
   try {
-    await refreshAndRenderBatches({ poll: !!state.apiKey });
-    if (state.apiKey) startPolling();
+    await refreshAndRenderBatches({ poll: !!state.apiKey && state.provider === 'openai' });
+    if (state.apiKey && state.provider === 'openai') startPolling();
   } catch (e) {
     console.warn('init batches failed:', e);
   }
