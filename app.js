@@ -214,6 +214,20 @@ orLoginBtn?.addEventListener('click', async () => {
 dropZone.addEventListener('drop', e => addFiles(e.dataTransfer.files));
 fileInput.addEventListener('change', e => addFiles(e.target.files));
 
+// Whole drop zone acts as a click target for the file picker. The "Or choose
+// files" label already opens the picker natively via <label for>; bail when
+// the click came from the label so we don't double-trigger.
+dropZone.addEventListener('click', (e) => {
+  if (e.target.closest('label.file-pick')) return;
+  fileInput.click();
+});
+dropZone.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' || e.key === ' ') {
+    e.preventDefault();
+    fileInput.click();
+  }
+});
+
 function addFiles(fileList) {
   const files = Array.from(fileList).filter(f => /^image\/(jpeg|png)$/.test(f.type));
   if (!files.length) return;
