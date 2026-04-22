@@ -189,16 +189,26 @@
 
         <div class="card auth-card">
           <!-- Option A: paste your own OpenAI key -->
-          <div class="auth-opt">
+          <div class="auth-opt" data-provider="openai">
             <h3 class="auth-opt-title">A. Paste your OpenAI API key</h3>
-            <p class="auth-opt-sub">
-              Cheapest path. Goes straight to <code>api.openai.com</code> — no third party in the loop. Unlocks batch mode (~50% off).
-              <a href="#how-to-get-a-key">How do I get a key?</a>
-            </p>
-            <div class="key-row">
-              <label for="api-key" class="visually-hidden">OpenAI API key</label>
-              <input type="password" id="api-key" placeholder="sk-..." autocomplete="off" spellcheck="false" aria-describedby="key-status" />
-              <button id="save-key" class="btn btn-primary">Save key</button>
+
+            <div class="auth-form">
+              <p class="auth-opt-sub">
+                Cheapest path. Goes straight to <code>api.openai.com</code> — no third party in the loop. Unlocks batch mode (~50% off).
+                <a href="#how-to-get-a-key">How do I get a key?</a>
+              </p>
+              <div class="key-row">
+                <label for="api-key" class="visually-hidden">OpenAI API key</label>
+                <input type="password" id="api-key" placeholder="sk-..." autocomplete="off" spellcheck="false" />
+                <button id="save-key" class="btn btn-primary">Save key</button>
+              </div>
+            </div>
+
+            <div class="auth-active" hidden>
+              <p class="auth-active-msg" role="status" aria-live="polite">
+                <span class="auth-check" aria-hidden="true">✓</span>
+                OpenAI key saved (ends in <code class="key-suffix"></code>). Goes straight to <code>api.openai.com</code>; batch mode available.
+              </p>
               <button id="clear-key" class="btn btn-ghost" type="button">Clear</button>
             </div>
           </div>
@@ -206,18 +216,27 @@
           <div class="auth-divider"><span>or</span></div>
 
           <!-- Option B: log in with OpenRouter (PKCE — works whether or not you already have an account) -->
-          <div class="auth-opt">
+          <div class="auth-opt" data-provider="openrouter">
             <h3 class="auth-opt-title">B. Log in to OpenRouter</h3>
-            <p class="auth-opt-sub">
-              One click. If you don't have an OpenRouter account yet, you can create
-              one on their sign-in page and come right back. In this mode your image
-              passes through OpenRouter on its way to OpenAI; ~5% more per receipt;
-              batch mode unavailable.
-            </p>
-            <button id="or-login" class="btn btn-primary" type="button">Sign in with OpenRouter</button>
-          </div>
 
-          <div id="key-status" class="key-status" role="status" aria-live="polite"></div>
+            <div class="auth-form">
+              <p class="auth-opt-sub">
+                One click. If you don't have an OpenRouter account yet, you can create
+                one on their sign-in page and come right back. In this mode your image
+                passes through OpenRouter on its way to OpenAI; ~5% more per receipt;
+                batch mode unavailable.
+              </p>
+              <button id="or-login" class="btn btn-primary" type="button">Sign in with OpenRouter</button>
+            </div>
+
+            <div class="auth-active" hidden>
+              <p class="auth-active-msg" role="status" aria-live="polite">
+                <span class="auth-check" aria-hidden="true">✓</span>
+                Signed in to OpenRouter (key ends in <code class="key-suffix"></code>). Image passes through <code>openrouter.ai</code> on its way to OpenAI.
+              </p>
+              <button id="or-signout" class="btn btn-ghost" type="button">Sign out</button>
+            </div>
+          </div>
         </div>
       </div>
     </section>

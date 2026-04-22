@@ -1313,6 +1313,34 @@ main {
 .auth-divider::after  { right: 0; }
 .auth-divider span { background: var(--card); padding: 0 4px; position: relative; }
 
+/* "settled" state shown in place of the form when this option is the active credential */
+.auth-active {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--ok-tint);
+  border: 1px solid color-mix(in srgb, var(--ok) 22%, transparent);
+}
+.auth-active-msg {
+  margin: 0;
+  flex: 1;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ok);
+}
+.auth-active-msg code {
+  background: rgba(31,107,58,0.10);
+  color: var(--ok);
+}
+.auth-check {
+  display: inline-block;
+  margin-right: 4px;
+  font-weight: 700;
+}
+.auth-active .btn { flex-shrink: 0; align-self: center; }
+
 /* ════════════════════════════════════════════════════════════════════
    MODE SWITCH  (Live vs Batch)
    ════════════════════════════════════════════════════════════════════ */

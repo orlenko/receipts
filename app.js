@@ -119,6 +119,9 @@ const keyStatus = $('key-status');
 const saveKeyBtn = $('save-key');
 const clearKeyBtn = $('clear-key');
 
+const orSignoutBtn = $('or-signout');
+const authOpts = document.querySelectorAll('.auth-opt');
+
 const dropZone = $('drop-zone');
 const fileInput = $('file-input');
 
@@ -142,19 +145,28 @@ const downloadCsvBtn = $('download-csv-btn');
 const PLATFORM_BATCH_URL = (id) => `https://platform.openai.com/batches/${id}`;
 
 // ---------- API key / provider auth ----------
+// Each auth option has two views: a default <div class="auth-form"> (input or
+// "Sign in" button) and an <div class="auth-active"> ("✓ saved …xyz [Clear]")
+// shown only when that option is the one currently providing the credential.
 function renderKeyStatus() {
-  if (state.apiKey) {
-    const provider = state.provider === 'openrouter' ? 'OpenRouter' : 'OpenAI';
-    keyStatus.textContent = `${provider} key saved locally (ends in …${state.apiKey.slice(-4)}). Ready to process.`;
-    keyStatus.classList.add('is-set');
-    keyInput.value = '';
-  } else {
-    keyStatus.textContent = 'No key saved yet — pick an option above to begin.';
-    keyStatus.classList.remove('is-set');
-  }
+  const activeProvider = state.apiKey ? state.provider : null;
+  authOpts.forEach((opt) => {
+    const provider = opt.dataset.provider;
+    const form = opt.querySelector('.auth-form');
+    const active = opt.querySelector('.auth-active');
+    const isActive = provider === activeProvider;
+    if (form)   form.hidden   = isActive;
+    if (active) active.hidden = !isActive;
+    if (isActive) {
+      const suffix = opt.querySelector('.key-suffix');
+      if (suffix) suffix.textContent = `…${state.apiKey.slice(-4)}`;
+    }
+  });
+  if (keyInput) keyInput.value = '';
+
   // Batch mode is OpenAI-only (OpenRouter doesn't expose the Batch API).
   if (modeBatchBtn) {
-    const orMode = state.provider === 'openrouter';
+    const orMode = state.provider === 'openrouter' && !!state.apiKey;
     modeBatchBtn.disabled = orMode;
     modeBatchBtn.title = orMode
       ? 'Batch mode is only available with a direct OpenAI key (OpenRouter doesn\u2019t expose the Batch API)'
@@ -175,6 +187,10 @@ keyInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') { e.preventDefault(); saveOpenAiKeyFromInput(); }
 });
 clearKeyBtn.addEventListener('click', () => {
+  clearAuth();
+  renderKeyStatus();
+});
+orSignoutBtn?.addEventListener('click', () => {
   clearAuth();
   renderKeyStatus();
 });
