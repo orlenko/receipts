@@ -2170,7 +2170,7 @@ body[data-app-state="first"] .first-only { display: block; }
 .site-foot {
   max-width: var(--maxw);
   margin: 40px auto 24px;
-  padding: 16px 24px 0;
+  padding: 16px 24px 16px;
   border-top: 1px dashed var(--rule-soft);
 }
 .site-foot .foot-mono {
@@ -2244,6 +2244,7 @@ body[data-app-state] .perforated { display: none; }
   font: 600 13px/1 var(--sans);
   margin-bottom: 4px;
   display: inline-flex; gap: 6px; align-items: center;
+  color: var(--ink);
 }
 .disclosure-body .privacy-list dd { margin: 0; font-size: 13px; color: var(--ink-2); line-height: 1.55; }
 .disclosure-body .tick { color: var(--ok); }
