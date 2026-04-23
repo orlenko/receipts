@@ -226,6 +226,50 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') closeInfoPanel();
 });
 
+// Explainer anchors: targets are either collapsed <details> or hidden via
+// .first-only, so a plain hash jump would scroll to nothing. Reveal + flash.
+const ANCHOR_TARGETS = new Set(['about', 'how', 'privacy', 'faq']);
+function flashSection(el) {
+  if (!el) return;
+  el.classList.remove('is-flashing');
+  void el.offsetWidth; // restart animation
+  el.classList.add('is-flashing');
+}
+function revealAnchor(hash) {
+  const id = (hash || '').replace(/^#/, '');
+  if (!ANCHOR_TARGETS.has(id)) return false;
+  const section = document.getElementById(id);
+  if (!section) return false;
+  if (id === 'about') {
+    document.body.classList.add('reveal-about');
+  } else {
+    const details = section.querySelector(':scope > details');
+    if (details) details.open = true;
+  }
+  section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  flashSection(section);
+  return true;
+}
+document.addEventListener('click', (e) => {
+  const link = e.target.closest('a[href^="#"]');
+  if (!link) return;
+  const hash = link.getAttribute('href');
+  if (revealAnchor(hash)) {
+    e.preventDefault();
+    history.replaceState(null, '', hash);
+    closeInfoPanel();
+  }
+});
+window.addEventListener('hashchange', () => revealAnchor(location.hash));
+$('about-close')?.addEventListener('click', () => {
+  document.body.classList.remove('reveal-about');
+  if (location.hash === '#about') history.replaceState(null, '', location.pathname + location.search);
+});
+if (location.hash) {
+  // Defer so the initial layout (syncConnectionUI) has set data-app-state.
+  queueMicrotask(() => revealAnchor(location.hash));
+}
+
 // ---------- API key / provider auth ----------
 // Each auth option has two views: a default <div class="auth-form"> (input or
 // "Sign in" button) and an <div class="auth-active"> ("✓ saved …xyz [Clear]")

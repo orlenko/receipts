@@ -2441,3 +2441,48 @@ body[data-app-state="first"] .hero-visual {
 /* When connected, the app shouldn't sit flush against the sticky bar */
 body[data-app-state="connected"] .app,
 body[data-app-state="working"] .app { padding-top: 20px; }
+
+/* ── anchor flash: a brief tint on the section the user jumped to.
+   Painted via a ::before that extends beyond the section's left/right
+   so the highlight has horizontal breathing room past the content edge. */
+@keyframes sectionFlash {
+  0%   { opacity: 1; }
+  100% { opacity: 0; }
+}
+.is-flashing {
+  position: relative;
+  isolation: isolate;
+}
+.is-flashing::before {
+  content: "";
+  position: absolute;
+  inset: 0 -16px;
+  background: var(--accent-tint);
+  border-radius: 10px;
+  z-index: -1;
+  pointer-events: none;
+  animation: sectionFlash 1.4s ease-out forwards;
+}
+
+/* ── explicit reveal of the About/explainer outside first-visit ─── */
+body.reveal-about .about.first-only { display: block; }
+.about { position: relative; }
+.about-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: none;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--card-edge);
+  background: var(--card);
+  color: var(--ink-3);
+  font: 600 16px/1 var(--mono);
+  cursor: pointer;
+}
+.about-close:hover { color: var(--ink); border-color: var(--ink-3); }
+body.reveal-about:not([data-app-state="first"]) .about-close { display: inline-flex; }
